@@ -97,26 +97,47 @@ alter table public.experiments             enable row level security;
 alter table public.experiment_variants     enable row level security;
 alter table public.experiment_interactions enable row level security;
 
--- Public read of definitions.
-create policy "read surveys"    on public.surveys             for select using (true);
-create policy "read questions"  on public.survey_questions    for select using (true);
-create policy "read experiments" on public.experiments        for select using (true);
-create policy "read variants"   on public.experiment_variants for select using (true);
+-- Public read of definitions. (drop-then-create keeps this migration idempotent —
+-- Postgres has no CREATE POLICY IF NOT EXISTS.)
+drop policy if exists "read surveys" on public.surveys;
+create policy "read surveys" on public.surveys for select using (true);
+drop policy if exists "read questions" on public.survey_questions;
+create policy "read questions" on public.survey_questions for select using (true);
+drop policy if exists "read experiments" on public.experiments;
+create policy "read experiments" on public.experiments for select using (true);
+drop policy if exists "read variants" on public.experiment_variants;
+create policy "read variants" on public.experiment_variants for select using (true);
 
 -- Anonymous participation: insert + read aggregate rows (no PII stored).
 -- Tighten to insert-only + SQL aggregate views if you don't want raw rows public.
-create policy "insert responses" on public.survey_responses
-  for insert with check (true);
-create policy "read responses" on public.survey_responses
-  for select using (true);
+drop policy if exists "insert responses" on public.survey_responses;
+create policy "insert responses" on public.survey_responses for insert with check (true);
+drop policy if exists "read responses" on public.survey_responses;
+create policy "read responses" on public.survey_responses for select using (true);
 
-create policy "insert interactions" on public.experiment_interactions
-  for insert with check (true);
-create policy "read interactions" on public.experiment_interactions
-  for select using (true);
+drop policy if exists "insert interactions" on public.experiment_interactions;
+create policy "insert interactions" on public.experiment_interactions for insert with check (true);
+drop policy if exists "read interactions" on public.experiment_interactions;
+create policy "read interactions" on public.experiment_interactions for select using (true);
 
 -- ---------------------------------------------------------------------------
 -- Realtime — stream new responses/interactions to subscribed clients.
+-- Guarded so re-running the migration doesn't error on already-published tables.
 -- ---------------------------------------------------------------------------
-alter publication supabase_realtime add table public.survey_responses;
-alter publication supabase_realtime add table public.experiment_interactions;
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public' and tablename = 'survey_responses'
+  ) then
+    alter publication supabase_realtime add table public.survey_responses;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public' and tablename = 'experiment_interactions'
+  ) then
+    alter publication supabase_realtime add table public.experiment_interactions;
+  end if;
+end $$;
