@@ -44,8 +44,16 @@ src/
 
 Runs on the localStorage mock with no config. Supabase turns on automatically
 when `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` are set. Schema + seed live
-in `supabase/`.
+in `supabase/`; schema changes go through **migrations** (`supabase/migrations/`),
+applied with the `supabase` CLI — never hand-edit tables for schema changes.
+
+## Branching & environments
+
+`main` = production (protected), `dev` = staging. Flow: `feat/*` → PR → `dev` →
+PR → `main`. Local dev, `dev`, and all previews use the **dev** Supabase project;
+only production uses prod. Full details in `CONTRIBUTING.md`.
 
 ## Before committing
 
-`pnpm typecheck && pnpm lint && pnpm test && pnpm build` should all pass.
+`pnpm typecheck && pnpm lint && pnpm test && pnpm build` should all pass (CI runs
+the same on every PR).
