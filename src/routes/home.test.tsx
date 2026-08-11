@@ -8,7 +8,7 @@ import { ThemeProvider } from '@/providers/theme-provider'
 import { siteConfig } from '@/config/site'
 
 describe('HomePage', () => {
-  it('renders the tagline and primary CTAs', () => {
+  it('renders the tagline and section links', () => {
     const queryClient = new QueryClient()
     render(
       <QueryClientProvider client={queryClient}>
@@ -21,8 +21,13 @@ describe('HomePage', () => {
     )
 
     expect(screen.getByText(siteConfig.tagline)).toBeInTheDocument()
+    // The hero is intentionally CTA-free — navigation lives in the section
+    // cards below it, so assert on those links instead.
     expect(
-      screen.getByRole('link', { name: /take a survey/i }),
+      screen.getByRole('link', { name: /browse surveys/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /browse experiments/i }),
     ).toBeInTheDocument()
   })
 })

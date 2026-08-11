@@ -10,7 +10,7 @@ export function AboutPage() {
       </h1>
       <div className="mt-6 space-y-4 text-pretty text-muted-foreground">
         <p>
-          {siteConfig.name} is a companion to the YouTube channel exploring UX
+          {siteConfig.name} is a companion to the YouTube series of the same name created by John Simmons exploring UX
           design, human–computer interaction, and psychology. Videos pose the
           questions; this site lets you take part.
         </p>
