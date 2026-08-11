@@ -11,7 +11,7 @@ export const siteConfig = {
   name: 'Zero Affordance',
   tagline: 'The psychology of how we interact with technology.',
   description:
-    'A companion to the Zero Affordance YouTube channel — interactive surveys and experiments about UX, human–computer interaction, and the mind.',
+    'A companion to the Zero Affordance series on YouTube — interactive surveys and experiments about UX, human–computer interaction, and the mind.',
   youtubeUrl: 'https://www.youtube.com/@johnsim',
   nav: [
     { title: 'Home', href: '/' },

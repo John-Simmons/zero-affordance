@@ -30,18 +30,6 @@ export function HomePage() {
           <p className="mx-auto mt-4 max-w-xl text-lg text-pretty text-muted-foreground">
             {siteConfig.description}
           </p>
-          <div className="mt-8 flex items-center justify-center gap-3">
-            <Button asChild size="lg">
-              <Link to="/surveys">
-                Take a survey <ArrowRight />
-              </Link>
-            </Button>
-            <Button asChild size="lg" variant="outline">
-              <Link to="/experiments">
-              Run an experiment <ArrowRight />
-              </Link>
-            </Button>
-          </div>
         </Container>
       </section>
 
