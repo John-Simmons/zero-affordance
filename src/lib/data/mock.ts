@@ -5,7 +5,12 @@
  * backend configured. It also backs unit tests. It mirrors the semantics of the
  * Supabase adapter so swapping between them is invisible to the UI.
  */
-import { aggregateExperiment, aggregateSurvey } from '@/lib/data/aggregate'
+import {
+  aggregateExperiment,
+  aggregateSurvey,
+  computeElo,
+  roundRobinPairs,
+} from '@/lib/data/aggregate'
 import type { DataProvider, Unsubscribe } from '@/lib/data/provider'
 import { seedExperiments, seedSurveys } from '@/lib/data/seed'
 import type {
@@ -13,6 +18,8 @@ import type {
   ExperimentSummary,
   ExperimentVariant,
   InteractionInput,
+  MatchInput,
+  MatchOutcome,
   Survey,
   SurveySummary,
 } from '@/lib/data/types'
@@ -20,6 +27,10 @@ import { hashString } from '@/lib/visitor'
 
 const RESPONSES_KEY = 'za.mock.surveyResponses'
 const INTERACTIONS_KEY = 'za.mock.interactions'
+const MATCHES_KEY = 'za.mock.matches'
+
+/** Stored match rows carry ordering metadata the domain type doesn't need. */
+type StoredMatch = MatchInput & { createdAt: string; seq: number }
 
 type Listener = () => void
 
@@ -83,6 +94,70 @@ function baselineSurveyResponses(survey: Survey) {
   }
   for (const [qid, counts] of Object.entries(baselineScale)) {
     for (const [val, n] of Object.entries(counts)) push(qid, Number(val), n)
+  }
+  return rows
+}
+
+// Baseline for the pairwise experiment. Elo is path-dependent, so this must be
+// deterministic — a fresh random draw on every read would make the leaderboard
+// jump around between renders. Seeded PRNG, fixed seed, same rows every time.
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/**
+ * Hidden "feels fast" weighting used ONLY to synthesise a plausible baseline —
+ * indicators conveying definite progress tend to read as quicker. Real votes
+ * overwrite this influence as they accumulate.
+ */
+const baselineAppeal: Record<string, number> = {
+  progress_bar: 0.8,
+  baking: 0.7,
+  skeleton: 0.6,
+  quote: 0.45,
+  classic_spinner: 0.3,
+  blank: 0.15,
+}
+
+const BASELINE_RUNS = 12
+
+function rollDuration(v: ExperimentVariant, rand: () => number): number {
+  const base = v.baseDurationMs ?? 1500
+  const jitter = v.jitterMs ?? 0
+  return Math.round(base + (rand() * 2 - 1) * jitter)
+}
+
+function baselineMatches(experiment: Experiment): MatchInput[] {
+  if (experiment.kind !== 'pairwise') return []
+  const rand = mulberry32(hashString(`baseline:${experiment.id}`))
+  const rows: MatchInput[] = []
+  for (let run = 0; run < BASELINE_RUNS; run++) {
+    for (const [a, b] of roundRobinPairs(experiment.variants)) {
+      const durationAMs = rollDuration(a, rand)
+      const durationBMs = rollDuration(b, rand)
+      // Longer runs feel slower; appeal stands in for everything else.
+      const scoreA = (baselineAppeal[a.id] ?? 0.5) - durationAMs / 6000
+      const scoreB = (baselineAppeal[b.id] ?? 0.5) - durationBMs / 6000
+      const margin = scoreA - scoreB + (rand() - 0.5) * 0.35
+      const outcome: MatchOutcome =
+        margin > 0.06 ? 'a' : margin < -0.06 ? 'b' : 'tie'
+      rows.push({
+        experimentId: experiment.id,
+        visitorId: 'seed',
+        variantAId: a.id,
+        variantBId: b.id,
+        durationAMs,
+        durationBMs,
+        outcome,
+      })
+    }
   }
   return rows
 }
@@ -192,12 +267,38 @@ export function createMockProvider(): DataProvider {
       return aggregateExperiment(exp, [...baselineInteractions(exp), ...stored])
     },
 
+    async recordMatch(input) {
+      const all = readArray<StoredMatch>(MATCHES_KEY)
+      // `seq` breaks ties when several votes land in the same millisecond —
+      // a real risk here, since one run submits ten matches in a few minutes.
+      all.push({
+        ...input,
+        createdAt: new Date().toISOString(),
+        seq: all.length,
+      })
+      writeArray(MATCHES_KEY, all)
+    },
+
+    async getEloAggregate(experimentId) {
+      const exp = findExperiment(experimentId)
+      if (!exp) return { experimentId, totalMatches: 0, ratings: [] }
+      const stored = readArray<StoredMatch>(MATCHES_KEY)
+        .filter((m) => m.experimentId === exp.id)
+        .sort((x, y) => x.createdAt.localeCompare(y.createdAt) || x.seq - y.seq)
+      // Baseline first: it stands in for history that predates this visitor.
+      return computeElo(exp, [...baselineMatches(exp), ...stored])
+    },
+
     subscribeToSurveyAggregate(_surveyId, onChange) {
       return subscribe(RESPONSES_KEY, onChange)
     },
 
     subscribeToExperimentAggregate(_experimentId, onChange) {
       return subscribe(INTERACTIONS_KEY, onChange)
+    },
+
+    subscribeToEloAggregate(_experimentId, onChange) {
+      return subscribe(MATCHES_KEY, onChange)
     },
   }
 }

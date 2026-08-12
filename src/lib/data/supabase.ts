@@ -12,13 +12,20 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { aggregateExperiment, aggregateSurvey } from '@/lib/data/aggregate'
+import {
+  aggregateExperiment,
+  aggregateSurvey,
+  computeElo,
+} from '@/lib/data/aggregate'
 import type { DataProvider, Unsubscribe } from '@/lib/data/provider'
 import type {
   AnswerValue,
   Experiment,
+  ExperimentKind,
   ExperimentVariant,
   InteractionInput,
+  MatchInput,
+  MatchOutcome,
   Survey,
   SurveyQuestion,
   SurveyResponseInput,
@@ -50,6 +57,7 @@ interface ExperimentRow {
   title: string
   description: string
   hypothesis: string
+  kind: ExperimentKind | null
   metric_label: string
   metric_min: number
   metric_max: number
@@ -58,6 +66,15 @@ interface VariantRow {
   id: string
   label: string
   description: string
+  base_duration_ms: number | null
+  jitter_ms: number | null
+}
+interface MatchRow {
+  variant_a_id: string
+  variant_b_id: string
+  duration_a_ms: number
+  duration_b_ms: number
+  outcome: MatchOutcome
 }
 
 function mapQuestion(row: QuestionRow): SurveyQuestion {
@@ -104,7 +121,7 @@ export function createSupabaseProvider(
     const { data: exp, error } = await client
       .from('experiments')
       .select(
-        'id, slug, title, description, hypothesis, metric_label, metric_min, metric_max',
+        'id, slug, title, description, hypothesis, kind, metric_label, metric_min, metric_max',
       )
       .or(`slug.eq.${idOrSlug},id.eq.${idOrSlug}`)
       .maybeSingle<ExperimentRow>()
@@ -113,7 +130,7 @@ export function createSupabaseProvider(
 
     const { data: variants, error: vErr } = await client
       .from('experiment_variants')
-      .select('id, label, description')
+      .select('id, label, description, base_duration_ms, jitter_ms')
       .eq('experiment_id', exp.id)
       .order('position', { ascending: true })
       .returns<VariantRow[]>()
@@ -125,10 +142,17 @@ export function createSupabaseProvider(
       title: exp.title,
       description: exp.description,
       hypothesis: exp.hypothesis,
+      kind: exp.kind ?? 'rating',
       metricLabel: exp.metric_label,
       metricMin: exp.metric_min,
       metricMax: exp.metric_max,
-      variants: variants ?? [],
+      variants: (variants ?? []).map((v) => ({
+        id: v.id,
+        label: v.label,
+        description: v.description,
+        baseDurationMs: v.base_duration_ms ?? undefined,
+        jitterMs: v.jitter_ms ?? undefined,
+      })),
     }
   }
 
@@ -235,6 +259,47 @@ export function createSupabaseProvider(
       return aggregateExperiment(exp, interactions)
     },
 
+    async recordMatch(input: MatchInput) {
+      const { error } = await client.from('experiment_matches').insert({
+        experiment_id: input.experimentId,
+        visitor_id: input.visitorId,
+        variant_a_id: input.variantAId,
+        variant_b_id: input.variantBId,
+        duration_a_ms: input.durationAMs,
+        duration_b_ms: input.durationBMs,
+        outcome: input.outcome,
+      })
+      if (error) throw error
+    },
+
+    async getEloAggregate(experimentId: string) {
+      const exp = await loadExperiment(experimentId)
+      if (!exp) return { experimentId, totalMatches: 0, ratings: [] }
+      const { data, error } = await client
+        .from('experiment_matches')
+        .select(
+          'variant_a_id, variant_b_id, duration_a_ms, duration_b_ms, outcome',
+        )
+        .eq('experiment_id', exp.id)
+        // Load-bearing, not cosmetic: Elo is path-dependent, so an unordered
+        // read would yield different ratings from the same rows. `id` breaks
+        // ties within a millisecond.
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .returns<MatchRow[]>()
+      if (error) throw error
+      const matches: MatchInput[] = (data ?? []).map((m) => ({
+        experimentId: exp.id,
+        visitorId: '',
+        variantAId: m.variant_a_id,
+        variantBId: m.variant_b_id,
+        durationAMs: m.duration_a_ms,
+        durationBMs: m.duration_b_ms,
+        outcome: m.outcome,
+      }))
+      return computeElo(exp, matches)
+    },
+
     subscribeToSurveyAggregate(surveyId: string, onChange): Unsubscribe {
       const channel = client
         .channel(`survey_responses:${surveyId}`)
@@ -266,6 +331,25 @@ export function createSupabaseProvider(
             event: 'INSERT',
             schema: 'public',
             table: 'experiment_interactions',
+            filter: `experiment_id=eq.${experimentId}`,
+          },
+          () => onChange(),
+        )
+        .subscribe()
+      return () => {
+        void client.removeChannel(channel)
+      }
+    },
+
+    subscribeToEloAggregate(experimentId: string, onChange): Unsubscribe {
+      const channel = client
+        .channel(`experiment_matches:${experimentId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'experiment_matches',
             filter: `experiment_id=eq.${experimentId}`,
           },
           () => onChange(),

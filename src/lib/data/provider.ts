@@ -7,11 +7,13 @@
  * components and hooks never change.
  */
 import type {
+  EloAggregate,
   Experiment,
   ExperimentAggregate,
   ExperimentSummary,
   ExperimentVariant,
   InteractionInput,
+  MatchInput,
   Survey,
   SurveyAggregate,
   SurveyResponseInput,
@@ -39,6 +41,12 @@ export interface DataProvider {
   recordInteraction(input: InteractionInput): Promise<void>
   getExperimentAggregate(experimentId: string): Promise<ExperimentAggregate>
 
+  // Pairwise experiments
+  /** Append one head-to-head judgement. Rows are immutable. */
+  recordMatch(input: MatchInput): Promise<void>
+  /** Derive current Elo ratings by replaying every recorded match. */
+  getEloAggregate(experimentId: string): Promise<EloAggregate>
+
   /**
    * Optional realtime hook. Adapters that cannot stream may omit it; callers
    * must treat it as best-effort and fall back to refetching.
@@ -48,6 +56,10 @@ export interface DataProvider {
     onChange: () => void,
   ): Unsubscribe
   subscribeToExperimentAggregate?(
+    experimentId: string,
+    onChange: () => void,
+  ): Unsubscribe
+  subscribeToEloAggregate?(
     experimentId: string,
     onChange: () => void,
   ): Unsubscribe

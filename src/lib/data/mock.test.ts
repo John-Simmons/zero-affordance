@@ -63,4 +63,58 @@ describe('mock data provider', () => {
       after.variants.find((v) => v.variantId === 'solid')?.count ?? 0
     expect(solidAfter).toBe(solidBefore + 1)
   })
+
+  it('loads the pairwise experiment with per-variant durations', async () => {
+    const provider = createMockProvider()
+    const exp = await provider.getExperiment('loading-perception')
+    expect(exp?.kind).toBe('pairwise')
+    expect(exp?.variants).toHaveLength(6)
+    for (const v of exp!.variants) {
+      expect(v.baseDurationMs).toBeGreaterThan(0)
+      expect(v.jitterMs).toBeGreaterThan(0)
+    }
+  })
+
+  it('returns a deterministic Elo baseline across provider instances', async () => {
+    // Elo is path-dependent, so a baseline that varied per read would make the
+    // leaderboard jump around between renders.
+    const first = await createMockProvider().getEloAggregate(
+      'exp_loading_perception',
+    )
+    const second = await createMockProvider().getEloAggregate(
+      'exp_loading_perception',
+    )
+    expect(second.ratings).toEqual(first.ratings)
+    expect(first.totalMatches).toBeGreaterThan(0)
+  })
+
+  it('records a match and moves only the two variants involved', async () => {
+    const provider = createMockProvider()
+    const before = await provider.getEloAggregate('exp_loading_perception')
+    const ratingBefore = (agg: typeof before, id: string) =>
+      agg.ratings.find((r) => r.variantId === id)!.rating
+
+    await provider.recordMatch({
+      experimentId: 'exp_loading_perception',
+      visitorId: 'test-visitor',
+      variantAId: 'classic_spinner',
+      variantBId: 'blank',
+      durationAMs: 1500,
+      durationBMs: 2000,
+      outcome: 'a',
+    })
+
+    const after = await provider.getEloAggregate('exp_loading_perception')
+    expect(after.totalMatches).toBe(before.totalMatches + 1)
+    expect(ratingBefore(after, 'classic_spinner')).toBeGreaterThan(
+      ratingBefore(before, 'classic_spinner'),
+    )
+    expect(ratingBefore(after, 'blank')).toBeLessThan(
+      ratingBefore(before, 'blank'),
+    )
+    // Untouched by this matchup.
+    for (const id of ['progress_bar', 'skeleton', 'baking', 'quote']) {
+      expect(ratingBefore(after, id)).toBeCloseTo(ratingBefore(before, id), 9)
+    }
+  })
 })

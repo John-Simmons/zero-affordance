@@ -5,7 +5,9 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ExperimentRunner } from '@/features/experiments/experiment-runner'
+import { PairwiseRunner } from '@/features/experiments/pairwise-runner'
 import { useExperiment } from '@/lib/data/hooks'
+import { cn } from '@/lib/utils'
 
 export function ExperimentDetailPage() {
   const { slug = '' } = useParams()
@@ -31,8 +33,12 @@ export function ExperimentDetailPage() {
     )
   }
 
+  // Pairwise experiments play their loading states in one full-width canvas;
+  // max-w-2xl would leave it too cramped to host a realistic skeleton loader.
+  const isPairwise = experiment.kind === 'pairwise'
+
   return (
-    <Container className="max-w-2xl py-12">
+    <Container className={cn('py-12', isPairwise ? 'max-w-4xl' : 'max-w-2xl')}>
       <header className="mb-8">
         <h1 className="font-heading text-3xl font-semibold tracking-tight text-balance">
           {experiment.title}
@@ -43,7 +49,11 @@ export function ExperimentDetailPage() {
       </header>
 
       <div className="space-y-6">
-        <ExperimentRunner experiment={experiment} />
+        {isPairwise ? (
+          <PairwiseRunner experiment={experiment} />
+        ) : (
+          <ExperimentRunner experiment={experiment} />
+        )}
 
         <Card>
           <CardHeader>
