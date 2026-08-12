@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   verify:
-    name: typecheck · lint · test · build
+    name: typecheck · lint · format · test · build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +33,11 @@ jobs:
 
       - name: Lint
         run: pnpm lint
+
+      # Formatting drifted unnoticed for weeks without this, so any wide
+      # `prettier --write` kept dragging unrelated files into feature diffs.
+      - name: Format check
+        run: pnpm format:check
 
       - name: Test
         run: pnpm test

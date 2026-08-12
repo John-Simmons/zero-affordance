@@ -40,7 +40,7 @@ pnpm dev                # http://localhost:5173  (footer shows "Supabase")
 ## Everyday checks (what CI runs)
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test && pnpm build
+pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build
 ```
 
 CI (`.github/workflows/ci.yml`) runs these on every PR and on pushes to `main`/`dev`.

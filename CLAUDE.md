@@ -55,5 +55,6 @@ only production uses prod. Full details in `CONTRIBUTING.md`.
 
 ## Before committing
 
-`pnpm typecheck && pnpm lint && pnpm test && pnpm build` should all pass (CI runs
-the same on every PR).
+`pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build`
+should all pass (CI runs the same on every PR). `pnpm format` fixes the
+formatting failures.
