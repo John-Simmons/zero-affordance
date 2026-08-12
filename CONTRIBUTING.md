@@ -5,12 +5,12 @@ local dev or previews.
 
 ## Environments
 
-| Environment | Git branch         | Supabase project    | URL                          |
-| ----------- | ------------------ | ------------------- | ---------------------------- |
-| Production  | `main` (protected) | prod                | https://www.zeroaffordance.com |
-| Staging     | `dev`              | dev                 | https://staging.zeroaffordance.com |
-| PR previews | `feat/*` (via PR)  | dev                 | per-deployment `*.vercel.app` |
-| Local       | working copy       | dev                 | http://localhost:5173        |
+| Environment | Git branch         | Supabase project | URL                                |
+| ----------- | ------------------ | ---------------- | ---------------------------------- |
+| Production  | `main` (protected) | prod             | https://www.zeroaffordance.com     |
+| Staging     | `dev`              | dev              | https://staging.zeroaffordance.com |
+| PR previews | `feat/*` (via PR)  | dev              | per-deployment `*.vercel.app`      |
+| Local       | working copy       | dev              | http://localhost:5173              |
 
 Only **Production** reads/writes the prod database. Local dev, the `dev` branch, and
 all PR previews use the **dev** Supabase project (via Vercel's Preview-scoped env vars
