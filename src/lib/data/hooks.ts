@@ -9,7 +9,11 @@ import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { getDataProvider } from '@/lib/data'
-import type { InteractionInput, SurveyResponseInput } from '@/lib/data/types'
+import type {
+  InteractionInput,
+  MatchInput,
+  SurveyResponseInput,
+} from '@/lib/data/types'
 
 export const queryKeys = {
   surveys: ['surveys'] as const,
@@ -22,6 +26,8 @@ export const queryKeys = {
     ['variant', experimentId, visitorId] as const,
   experimentAggregate: (experimentId: string) =>
     ['experiment-aggregate', experimentId] as const,
+  eloAggregate: (experimentId: string) =>
+    ['elo-aggregate', experimentId] as const,
 }
 
 // --- Surveys ---------------------------------------------------------------
@@ -137,6 +143,42 @@ export function useRecordInteraction() {
     onSuccess: (_data, input) => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.experimentAggregate(input.experimentId),
+      })
+    },
+  })
+}
+
+// --- Pairwise experiments --------------------------------------------------
+
+export function useEloAggregate(experimentId: string | undefined) {
+  const queryClient = useQueryClient()
+  const query = useQuery({
+    queryKey: queryKeys.eloAggregate(experimentId ?? ''),
+    queryFn: () => getDataProvider().getEloAggregate(experimentId!),
+    enabled: Boolean(experimentId),
+  })
+
+  useEffect(() => {
+    if (!experimentId) return
+    const provider = getDataProvider()
+    const unsub = provider.subscribeToEloAggregate?.(experimentId, () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.eloAggregate(experimentId),
+      })
+    })
+    return unsub
+  }, [experimentId, queryClient])
+
+  return query
+}
+
+export function useRecordMatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: MatchInput) => getDataProvider().recordMatch(input),
+    onSuccess: (_data, input) => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.eloAggregate(input.experimentId),
       })
     },
   })

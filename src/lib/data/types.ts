@@ -84,10 +84,32 @@ export interface SurveyAggregate {
 // Experiments (A/B-style interactive demos)
 // ---------------------------------------------------------------------------
 
+/**
+ * How an experiment is played.
+ *
+ * `rating`   — one variant is assigned per visitor, who rates it on a scale.
+ * `pairwise` — the visitor sees every variant, judges them two at a time, and
+ *              the results are a global Elo ranking rather than per-variant means.
+ */
+export type ExperimentKind = 'rating' | 'pairwise'
+
+export const EXPERIMENT_KINDS = {
+  rating: 'rating',
+  pairwise: 'pairwise',
+} as const satisfies Record<ExperimentKind, ExperimentKind>
+
 export interface ExperimentVariant {
   id: string
   label: string
   description: string
+  /**
+   * Pairwise experiments only: how long this variant runs for, in ms. The
+   * actual duration is re-rolled per matchup as
+   * `baseDurationMs ± jitterMs` so that identity and length decorrelate —
+   * otherwise "wins often" and "is shortest" are indistinguishable in the data.
+   */
+  baseDurationMs?: number
+  jitterMs?: number
 }
 
 export interface Experiment {
@@ -96,6 +118,7 @@ export interface Experiment {
   title: string
   description: string
   hypothesis: string
+  kind: ExperimentKind
   /** Label of the outcome metric users rate, e.g. "Perceived ease (1–5)". */
   metricLabel: string
   metricMin: number
@@ -131,4 +154,52 @@ export interface ExperimentAggregate {
   experimentId: string
   totalInteractions: number
   variants: VariantAggregate[]
+}
+
+// ---------------------------------------------------------------------------
+// Pairwise experiments (head-to-head matchups → global Elo ranking)
+// ---------------------------------------------------------------------------
+
+/** Which side the participant judged the winner. `tie` is a genuine draw. */
+export type MatchOutcome = 'a' | 'b' | 'tie'
+
+export const MATCH_OUTCOMES = {
+  a: 'a',
+  b: 'b',
+  tie: 'tie',
+} as const satisfies Record<MatchOutcome, MatchOutcome>
+
+/**
+ * One head-to-head judgement.
+ *
+ * Modelled as A/B + outcome rather than winner/loser because a tie has no
+ * winner to name. Both durations are recorded on the row rather than looked up
+ * from the variant definition, so retuning a variant's timing later cannot
+ * retroactively rewrite match history.
+ */
+export interface MatchInput {
+  experimentId: string
+  visitorId: string
+  variantAId: string
+  variantBId: string
+  durationAMs: number
+  durationBMs: number
+  outcome: MatchOutcome
+}
+
+export interface EloRating {
+  variantId: string
+  label: string
+  rating: number
+  matches: number
+  wins: number
+  losses: number
+  ties: number
+}
+
+export interface EloAggregate {
+  experimentId: string
+  totalMatches: number
+  /** Sorted by rating, highest first. */
+  ratings: EloRating[]
 }
