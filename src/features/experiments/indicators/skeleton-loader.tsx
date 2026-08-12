@@ -27,7 +27,11 @@ function Bar({ className }: { className?: string }) {
 
 export function SkeletonLoader() {
   return (
-    <div className="w-full space-y-2">
+    // h-full so it starts at the TOP of the frame, where the article it stands
+    // in for will appear. Centred, it floated in the middle of the canvas and
+    // predicted nothing about the incoming layout — which is the one job a
+    // skeleton has.
+    <div className="h-full w-full space-y-2">
       {/* h4 title */}
       <Bar className="h-4 w-2/3" />
       {/* byline */}

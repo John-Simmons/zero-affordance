@@ -50,9 +50,9 @@ export function PairwiseIntro({
             You only get to watch each pair once, so give them your attention.
           </p>
           <p className="pt-1 text-xs">
-            Each one runs for a slightly different, randomised length, and the
-            ranking accounts for that — so simply being quicker is not enough to
-            win.
+            Both run for about the same length, nudged slightly at random each
+            time. The ranking corrects for whatever difference is left, so
+            simply being quicker is not enough to win.
           </p>
         </div>
 
