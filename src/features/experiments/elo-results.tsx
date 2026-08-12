@@ -33,11 +33,19 @@ export function EloResults({
   aggregate,
   isLoading,
   deltas,
+  voteCount,
 }: {
   aggregate: EloAggregate | undefined
   isLoading: boolean
   /** This run's effect per variant. Omitted when it can't be established. */
   deltas?: Record<string, number>
+  /**
+   * How many votes this run recorded. Passed in rather than written into the
+   * copy: the count is C(variants, 2), so it changed from ten to fifteen the
+   * moment a sixth indicator was added, and a hardcoded number goes stale
+   * silently.
+   */
+  voteCount?: number
 }) {
   if (isLoading || !aggregate) return <Skeleton className="h-64 w-full" />
 
@@ -48,7 +56,9 @@ export function EloResults({
         from everyone who has played. Ratings start at {START_RATING} and are
         adjusted for how long each animation actually ran — winning while
         shorter earns less.
-        {deltas && ' The bracketed figure is what your ten votes just changed.'}
+        {deltas &&
+          voteCount !== undefined &&
+          ` The bracketed figure is what your ${voteCount} votes just changed.`}
       </p>
 
       {/*

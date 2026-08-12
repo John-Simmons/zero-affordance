@@ -301,6 +301,7 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
             aggregate={aggregate.data}
             isLoading={aggregate.isLoading}
             deltas={deltas}
+            voteCount={myMatches.length}
           />
           <Button variant="outline" onClick={restart}>
             {myMatches.length === 0 ? 'Take the experiment' : 'Take it again'}
