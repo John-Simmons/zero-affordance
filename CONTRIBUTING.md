@@ -59,12 +59,21 @@ pnpm supabase login                         # one-time, interactive
 pnpm supabase migration new add_something
 
 # apply to DEV, test on staging, then apply to PROD
-pnpm supabase link --project-ref <dev-ref>
+pnpm supabase link --project-ref bydjoacdofhzfroegfmc   # dev  (zero-affordance-dev)
 pnpm supabase db push
 # ...verify on staging.zeroaffordance.com...
-pnpm supabase link --project-ref pjcltrrixmuitgykhzbb   # prod
+pnpm supabase link --project-ref pjcltrrixmuitgykhzbb   # prod (zero-affordance)
 pnpm supabase db push
 ```
+
+> The two project names differ by a suffix — `zero-affordance-dev` is dev,
+> plain `zero-affordance` is production. Check which ref you linked
+> (`pnpm supabase projects list` marks the linked one) before running
+> `db push`, or run it against prod by accident.
+
+Note `db push` applies **migrations only**; it does not run `seed.sql`. Content
+that an existing environment needs — a new experiment row, say — has to be in a
+migration, or it will simply be missing there.
 
 `supabase/seed.sql` holds the starter survey/experiment definitions (safe to re-run —
 uses `on conflict do nothing`).
