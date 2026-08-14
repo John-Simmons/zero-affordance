@@ -2,6 +2,7 @@ import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { loadingIndicators } from '@/features/experiments/indicators'
+import { roundRobinPairs } from '@/lib/data/aggregate'
 import { seedExperiments } from '@/lib/data/seed'
 
 const ids = Object.keys(loadingIndicators)
@@ -9,10 +10,22 @@ const ids = Object.keys(loadingIndicators)
 /** Indicators that must visibly track progress, vs those that may ignore it. */
 const DETERMINATE = ['progress_bar', 'baking']
 
-function html(id: string, progress: number): string {
+const loadingExperiment = seedExperiments.find(
+  (e) => e.id === 'exp_loading_perception',
+)!
+
+/** Seed defaults so every existing call site reads unchanged. */
+function html(id: string, progress: number, seed = 0): string {
   const Indicator = loadingIndicators[id]
-  const { container } = render(<Indicator progress={progress} />)
+  const { container } = render(<Indicator progress={progress} seed={seed} />)
   return container.innerHTML
+}
+
+/** Just the line being read, without the ellipsis animating beneath it. */
+function quoteAt(seed: number, progress = 0): string {
+  const Indicator = loadingIndicators.quote
+  const { container } = render(<Indicator progress={progress} seed={seed} />)
+  return container.querySelector('blockquote')?.textContent ?? ''
 }
 
 describe('loadingIndicators', () => {
@@ -57,6 +70,16 @@ describe('loadingIndicators', () => {
     expect(html(id, 0)).not.toEqual(html(id, 1))
   })
 
+  it.each(ids)('renders %s for any seed', (id) => {
+    // `seed` indexes a pool now, so nonsense must not index off the end — the
+    // same failure mode as the negative-progress regression above.
+    for (const s of [-1, 0, 1.5, NaN, Infinity, -Infinity, 1e9]) {
+      expect(() => html(id, 0.5, s)).not.toThrow()
+    }
+  })
+
+  // `quote` is excluded because its ellipsis tracks progress, not because of
+  // anything to do with which line it happens to be showing.
   it.each(ids.filter((id) => !DETERMINATE.includes(id) && id !== 'quote'))(
     '%s is indeterminate — output does not depend on progress',
     (id) => {
@@ -68,13 +91,45 @@ describe('loadingIndicators', () => {
     expect(html('blank', 0.5)).toBe('')
   })
 
-  it('keeps the quote itself fixed, animating only the ellipsis', () => {
-    // A quote that changed between runs would make the variant inconsistent and
-    // put noise into its rating.
-    const at = (p: number) => html('quote', p)
-    expect(at(0)).toContain('Dieter Rams')
-    expect(at(1)).toContain('Dieter Rams')
+  it('animates the ellipsis without disturbing the line being read', () => {
+    // Seed held fixed, because within ONE appearance the quote must not move —
+    // otherwise the participant is re-reading rather than reading. Pinning the
+    // quote equal first is what makes the inequality below meaningful: it can
+    // only be the ellipsis, which is the sole thing allowed to change.
+    expect(quoteAt(3, 0)).toBe(quoteAt(3, 1))
+    const at = (p: number) => html('quote', p, 3)
     expect(at(0.35)).not.toEqual(at(0.5))
+  })
+
+  it('shows the same quote for the same seed, on a fresh mount', () => {
+    // The runner mounts this twice per appearance: the stimulus canvas, then
+    // the vote-time recap. If those disagreed the recap would be reminding the
+    // participant of something that never played.
+    expect(quoteAt(7)).toBe(quoteAt(7))
+    expect(quoteAt(7, 1)).toBe(quoteAt(7, 0))
+  })
+
+  it('gives every appearance in a run a different quote', () => {
+    // A run hands each matchup a distinct seed, so the pool must be at least as
+    // long as the run. Shorter and two appearances collide modulo its length,
+    // and the participant re-reads a line — exactly the state this variant was
+    // stuck in. Six indicators = fifteen matchups = fifteen quotes minimum.
+    const seeds = roundRobinPairs(loadingExperiment.variants).map((_, i) => i)
+    const seen = new Set(seeds.map((s) => quoteAt(s)))
+    expect(seen.size).toBe(seeds.length)
+  })
+
+  it('keeps the quotes matched for reading length', () => {
+    // Length is what this variant asks of the participant, so a very short and
+    // a very long line are not the same stimulus and the spread would land in
+    // its own rating. The upper bound is set by the recap panel on a phone —
+    // about 114px, which clips past roughly three lines.
+    const seeds = roundRobinPairs(loadingExperiment.variants).map((_, i) => i)
+    for (const s of seeds) {
+      const text = quoteAt(s)
+      expect(text.length).toBeGreaterThanOrEqual(25)
+      expect(text.length).toBeLessThanOrEqual(75)
+    }
   })
 
   it('fills the progress bar from empty to full', () => {

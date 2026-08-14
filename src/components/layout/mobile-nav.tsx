@@ -33,14 +33,28 @@ export function MobileNav() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild className="sm:hidden">
-        {/* Matches ThemeToggle beside it — the house pattern for an icon-only
-            control is a ghost icon Button carrying an explicit aria-label. */}
-        <Button variant="ghost" size="icon" aria-label="Open menu">
+        {/*
+          Same shape as ThemeToggle — the house pattern for an icon-only control
+          is a ghost icon Button carrying an explicit aria-label.
+
+          `-ml-1.5` cancels most of the button's own padding so the glyph lines
+          up optically with `Container`'s `px-4` gutter. Without it the icon
+          reads noticeably inset against everything below it, because the
+          button's box is wider than the mark inside it.
+        */}
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Open menu"
+          className="-ml-1.5"
+        >
           <Menu />
         </Button>
       </SheetTrigger>
 
-      <SheetContent side="right">
+      {/* Left, matching the trigger's position: a panel that flew in from the
+          opposite edge to the button that summoned it reads as unrelated. */}
+      <SheetContent side="left">
         <SheetHeader>
           {/*
             A dialog with no accessible name is an outright a11y failure, and

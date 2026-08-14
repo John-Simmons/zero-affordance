@@ -34,45 +34,70 @@ zero entries.
 
 ---
 
-## 2. Fix the global navigation on mobile
+## 2. Change the mobile nav menu location
 
-`src/components/layout/site-header.tsx` — the `<nav>` is
-`hidden items-center gap-1 sm:flex`, and nothing replaces it below `sm`. There
-is no menu button, no drawer, no overflow menu.
+The menu works but sits on the wrong side. `MobileNav` is currently the last
+child of the header's right icon cluster in
+`src/components/layout/site-header.tsx`, and its sheet is `side="right"`.
 
-**This is worse than a missing menu.** `src/components/layout/site-footer.tsx`
-carries no links either, so on a phone the wordmark's link to `/` is the _only_
-navigation in the entire app. Three of the four routes in `siteConfig.nav` —
-`/surveys`, `/experiments`, `/about` — have no entry point at all. Anyone who
-lands on an experiment from a shared link is stuck there.
+Wanted: the hamburger as the **first** child of the `Container` row, before the
+wordmark, with the sheet opening from the **left** — the near-universal mobile
+convention, and it keeps the trigger and the panel on the same edge.
 
-Things to get right:
+- Both halves live in `src/components/layout/mobile-nav.tsx`; moving the
+  `<MobileNav />` element in the header and flipping `side="left"` is the whole
+  change. `sm:hidden` is on the trigger button itself, so it travels with it.
+- **Optical alignment will need a nudge.** `Container` is `px-4`, and a ghost
+  icon button carries its own padding, so the glyph will read inset from the
+  gutter the wordmark currently sits on. Expect a small negative margin
+  (`-ml-1.5`ish); confirm against a screenshot rather than by eye in code.
+- The wordmark shifts right by roughly the button's width. Check the header
+  still breathes at 320px, where "Zero Affordance" is already close to the
+  YouTube and theme buttons.
+- `site-header.test.tsx` queries by role and accessible name, not by position,
+  so the existing tests should survive the move — but they are the proof, so
+  re-run them rather than assuming.
+- Verify at 390x844 with `scripts/drive.mjs`. Note its `click:TEXT` step cannot
+  press this trigger: the step matches on `textContent` and an icon-only button
+  named by `aria-label` has none. Drive it with
+  `eval:document.querySelector('[aria-haspopup=dialog]').click()` — that
+  selector is unique to this trigger, since the theme toggle is
+  `aria-haspopup="menu"`.
 
-- **Reach for an installed primitive.** `drawer` is already here (added for the
-  indicator preview, so `vaul` is paid for) and `dropdown-menu` has been here
-  from the start. `sheet` — shadcn's canonical mobile nav, and a side panel
-  rather than a bottom one — is **not** installed but needs no new dependency,
-  being built on the Radix `dialog` already present. Any of the three beats
-  hand-rolling (non-negotiable #1).
-- **Closing on navigation is the classic bug.** A `NavLink` inside an overlay
-  navigates without closing it, so the menu stays open over the new page. The
-  control has to be driven with `onOpenChange` and closed on select.
-- **Keep the active styling.** The desktop nav uses `NavLink`'s `isActive` to
-  bold the current route; the mobile menu should say where you are too, not
-  just list four links.
-- **The trigger needs a name.** An icon-only button must carry an accessible
-  label, and vaul warns if a drawer renders without a title.
-- **`useMediaQuery` exists now** (`src/hooks/use-media-query.ts`) if a JS-side
-  swap is wanted, but a CSS-only `sm:hidden` trigger beside the existing
-  `hidden sm:flex` nav is simpler and needs no JS to stay in step. If the JS
-  route is taken, `sm` is 40rem.
+---
 
-Verify with `scripts/drive.mjs` using the `size:` step at 390x844, checking that
-every route in `siteConfig.nav` is reachable and that the menu closes behind you.
+## 3. Add a video topic survey
 
-While in here: the vote-button touch-target note under _Smaller, unscheduled_
-applies to a nav menu too — hit areas on a phone are the whole point.
+A survey covering two things: which video topics people actually want, and
+enough demographics to say who "people" were. Deliberately a mix of question
+types — `multiple_choice`, `scale` and `text` are all supported end to end by
+`src/features/surveys/survey-runner.tsx` and `survey-results.tsx`, so this is
+seed data and copy, not new UI.
 
+Wider than it looks:
+
+- `src/lib/data/seed.ts` **and** `supabase/seed.sql` — both mirrors, as always.
+- **A migration.** `seed.sql` only runs on a fresh or reset database, so a seed
+  edit alone leaves dev and prod without the survey. Same lesson as the duration
+  column drop.
+
+Two things to decide before writing the questions:
+
+- **Free text is barely aggregated.** `aggregateSurvey` keeps
+  `.slice(-5).reverse()` — the five most recent answers — and then reports
+  `total: textSamples.length`, so a text question with four hundred responses
+  displays a total of 5. That is fine for a pull-quote and useless for ranking
+  suggested topics or summarising an open-ended demographic. If free text needs
+  to be countable, that is aggregation work in `src/lib/data/aggregate.ts`, not
+  something the seed can fix.
+- **Demographics versus the anonymity promise.** `src/routes/about.tsx` states
+  "Nothing requires an account; participation is anonymous". Demographic
+  questions should not quietly erode that: `required` is opt-in per question, so
+  leave them optional, and give choice questions a "prefer not to say" option.
+  Enough narrow demographics combined can identify someone even without a name.
+
+Sequencing: item 1 retires the placeholder survey `srv_tech_habits`. Land this
+one first, or the surveys index is empty in between.
 ---
 
 ## Pending database changes

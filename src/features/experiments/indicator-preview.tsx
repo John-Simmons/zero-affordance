@@ -75,6 +75,15 @@ function PreviewStage({
   // timed here, and re-rolling would make one preview inconsistent with itself
   // between loops.
   const progress = useLoopingProgress(PREVIEW_DURATION_MS, running)
+  /*
+    Random here, unlike in a run, and it does not contradict the note above:
+    that one is about pace, where a loop changing speed mid-cycle reads as a
+    glitch. This is picked once per mount and held for as long as the preview is
+    open, so nothing changes under the reader. Nothing here is measured either,
+    and a fresh line each time you open it advertises the variant better than
+    the same one forever.
+  */
+  const [seed] = useState(() => Math.floor(Math.random() * 1_000_000))
 
   return (
     <div className={PREVIEW_CANVAS}>
@@ -85,7 +94,7 @@ function PreviewStage({
         RecapPanel on desktop.
       */}
       <div className="flex h-full items-center justify-center">
-        {Indicator && <Indicator progress={progress} />}
+        {Indicator && <Indicator progress={progress} seed={seed} />}
       </div>
     </div>
   )

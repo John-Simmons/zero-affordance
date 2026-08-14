@@ -38,6 +38,13 @@ interface Matchup {
   b: ExperimentVariant
   durationAMs: number
   durationBMs: number
+  /**
+   * Identifies this appearance to whichever indicator plays it, so one that
+   * varies its content (the quote) can pick something new each matchup and
+   * still show the SAME thing in the vote-time recap. Belongs to the matchup
+   * rather than to a side, exactly like the duration base.
+   */
+  seed: number
 }
 
 /**
@@ -104,13 +111,29 @@ function shuffle<T>(items: T[]): T[] {
  * re-roll the durations mid-run.
  */
 function buildRunPlan(variants: ExperimentVariant[]): Matchup[] {
-  return shuffle(roundRobinPairs(variants)).map(([x, y]) => {
+  const pairs = shuffle(roundRobinPairs(variants))
+  /*
+    A permutation, not independent draws, and shuffled rather than positional.
+
+    Distinct matters: an indicator keying content off the seed gets something
+    different every appearance. Drawing independently from a pool of fifteen
+    would leave all five quote appearances distinct only about 47% of the time
+    — a repeat in most runs, which is the whole thing being fixed.
+
+    Shuffled matters separately: with `seed = i` the seed would just be the
+    playback position, so the very first thing a participant sees — the one
+    they are most likely to read attentively — would always come from the head
+    of the pool.
+  */
+  const seeds = shuffle(pairs.map((_, i) => i))
+
+  return pairs.map(([x, y], i) => {
     const [a, b] = Math.random() < 0.5 ? [x, y] : [y, x]
     // Durations belong to the matchup, not to either variant: both sides share
     // one base so length never competes with the animation being judged, and
     // the base moves between matchups so it cannot be learned. Shared with the
     // mock provider's baseline so both are rated on the same scale.
-    return { a, b, ...rollMatchupDurations(Math.random) }
+    return { a, b, seed: seeds[i], ...rollMatchupDurations(Math.random) }
   })
 }
 
@@ -124,11 +147,13 @@ function StimulusCanvas({
   durationMs,
   loaded,
   onDone,
+  seed,
 }: {
   variant: ExperimentVariant
   durationMs: number
   loaded: boolean
   onDone: () => void
+  seed: number
 }) {
   const progress = useTimedProgress(durationMs, !loaded, onDone)
   const Indicator = loadingIndicators[variant.id]
@@ -141,7 +166,7 @@ function StimulusCanvas({
         <LoadedContent />
       ) : (
         <div className="flex h-full items-center justify-center">
-          {Indicator && <Indicator progress={progress} />}
+          {Indicator && <Indicator progress={progress} seed={seed} />}
         </div>
       )}
     </div>
@@ -157,13 +182,19 @@ function StimulusCanvas({
  *
  * The name is shown alongside because `blank` has, correctly, nothing to draw;
  * without it that panel would read as broken rather than as the control.
+ *
+ * `seed` is what makes "which indicator played" literally true for a variant
+ * whose content varies: this is a fresh mount, so without the matchup's seed
+ * the quote here would be a different one from the quote just watched.
  */
 function RecapPanel({
   variant,
   position,
+  seed,
 }: {
   variant: ExperimentVariant
   position: string
+  seed: number
 }) {
   const Indicator = loadingIndicators[variant.id]
 
@@ -188,7 +219,7 @@ function RecapPanel({
         grid-rows there.
       */}
       <div className="flex min-h-0 w-full flex-1 items-start justify-center overflow-hidden sm:items-center">
-        {Indicator && <Indicator progress={1} />}
+        {Indicator && <Indicator progress={1} seed={seed} />}
       </div>
       {/*
         One line below sm ("First · Classic spinner"), two from sm up. Stacking
@@ -441,6 +472,7 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
               <StimulusCanvas
                 key={`${round}-a`}
                 variant={matchup.a}
+                seed={matchup.seed}
                 durationMs={matchup.durationAMs}
                 loaded={stage === 'first-held'}
                 onDone={() => setStage('first-held')}
@@ -451,6 +483,7 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
               <StimulusCanvas
                 key={`${round}-b`}
                 variant={matchup.b}
+                seed={matchup.seed}
                 durationMs={matchup.durationBMs}
                 loaded={stage === 'second-held'}
                 onDone={() => setStage('second-held')}
@@ -466,8 +499,16 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
               // against. minmax(0, 1fr), which is what grid-rows-N expands to,
               // pins each row to its share of the frame instead.
               <div className="grid h-full grid-rows-2 gap-4 sm:grid-cols-2 sm:grid-rows-1">
-                <RecapPanel variant={matchup.a} position="First" />
-                <RecapPanel variant={matchup.b} position="Second" />
+                <RecapPanel
+                  variant={matchup.a}
+                  position="First"
+                  seed={matchup.seed}
+                />
+                <RecapPanel
+                  variant={matchup.b}
+                  position="Second"
+                  seed={matchup.seed}
+                />
               </div>
             )}
           </div>

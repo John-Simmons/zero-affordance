@@ -12,6 +12,10 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur">
       <Container className="flex h-14 items-center gap-4">
+        {/* First in the row, so the panel it opens comes from the edge the
+            button sits on. Renders nothing at all from `sm` up. */}
+        <MobileNav />
+
         <NavLink to="/" className="font-heading text-base font-semibold">
           {siteConfig.name}
         </NavLink>
@@ -51,7 +55,6 @@ export function SiteHeader() {
             </a>
           </Button>
           <ThemeToggle />
-          <MobileNav />
         </div>
       </Container>
     </header>
