@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { computeElo, roundRobinPairs, START_RATING } from '@/lib/data/aggregate'
+import {
+  BASE_DURATION_MAX_MS,
+  BASE_DURATION_MIN_MS,
+  computeElo,
+  DURATION_JITTER_FRACTION,
+  rollMatchupDurations,
+  roundRobinPairs,
+  scoreAccuracy,
+  START_RATING,
+} from '@/lib/data/aggregate'
 import type { Experiment, MatchInput } from '@/lib/data/types'
 
 const experiment: Experiment = {
@@ -14,9 +23,9 @@ const experiment: Experiment = {
   metricMin: 0,
   metricMax: 0,
   variants: [
-    { id: 'x', label: 'X', baseDurationMs: 1500, jitterMs: 0, description: '' },
-    { id: 'y', label: 'Y', baseDurationMs: 1500, jitterMs: 0, description: '' },
-    { id: 'z', label: 'Z', baseDurationMs: 1500, jitterMs: 0, description: '' },
+    { id: 'x', label: 'X', description: '' },
+    { id: 'y', label: 'Y', description: '' },
+    { id: 'z', label: 'Z', description: '' },
   ],
 }
 
@@ -284,5 +293,116 @@ describe('computeElo', () => {
     ])
     expect(agg.totalMatches).toBe(0)
     for (const r of agg.ratings) expect(r.rating).toBe(START_RATING)
+  })
+})
+
+describe('scoreAccuracy', () => {
+  /** Shorter animation is A; picking 'a' is the right call. */
+  const aIsShorter = { durationAMs: 1200, durationBMs: 1900 }
+
+  it('scores nothing from no matches', () => {
+    expect(scoreAccuracy([])).toEqual({ correct: 0, scored: 0, ties: 0 })
+  })
+
+  it('counts naming the shorter animation as correct, either side', () => {
+    const score = scoreAccuracy([
+      match({ ...aIsShorter, outcome: 'a' }),
+      match({ durationAMs: 1900, durationBMs: 1200, outcome: 'b' }),
+    ])
+    expect(score).toEqual({ correct: 2, scored: 2, ties: 0 })
+  })
+
+  it('counts naming the longer animation against the score', () => {
+    const score = scoreAccuracy([match({ ...aIsShorter, outcome: 'b' })])
+    expect(score).toEqual({ correct: 0, scored: 1, ties: 0 })
+  })
+
+  it('excludes a tie from the denominator, not just the numerator', () => {
+    const score = scoreAccuracy([
+      match({ ...aIsShorter, outcome: 'a' }),
+      match({ ...aIsShorter, outcome: 'tie' }),
+      match({ ...aIsShorter, outcome: 'tie' }),
+    ])
+    // Three votes played, two called too close: 1 of 1, not 1 of 3.
+    expect(score).toEqual({ correct: 1, scored: 1, ties: 2 })
+  })
+
+  it('excludes equal durations — there was no shorter one to pick', () => {
+    const score = scoreAccuracy([
+      match({ durationAMs: 1500, durationBMs: 1500, outcome: 'a' }),
+      match({ durationAMs: 1500, durationBMs: 1500, outcome: 'b' }),
+    ])
+    expect(score).toEqual({ correct: 0, scored: 0, ties: 0 })
+  })
+
+  it('does not report an equal-duration matchup as a tie vote', () => {
+    // `ties` backs the on-screen note about "too close to call" votes, so it
+    // must count those and nothing else.
+    const score = scoreAccuracy([
+      match({ durationAMs: 1500, durationBMs: 1500, outcome: 'a' }),
+    ])
+    expect(score.ties).toBe(0)
+  })
+
+  it('leaves no score to show when every matchup was called too close', () => {
+    const score = scoreAccuracy([
+      match({ ...aIsShorter, outcome: 'tie' }),
+      match({ ...aIsShorter, outcome: 'tie' }),
+    ])
+    expect(score).toEqual({ correct: 0, scored: 0, ties: 2 })
+  })
+})
+
+describe('rollMatchupDurations', () => {
+  /** Deterministic stand-in for Math.random, cycling the given values. */
+  function seq(values: number[]): () => number {
+    let i = 0
+    return () => values[i++ % values.length]
+  }
+
+  it('puts both sides within jitter of one shared base', () => {
+    // 200 rolls of the real generator, checked against the invariant rather
+    // than against fixed numbers.
+    for (let i = 0; i < 200; i++) {
+      const { durationAMs, durationBMs } = rollMatchupDurations(Math.random)
+      const mean = (durationAMs + durationBMs) / 2
+      const relativeGap = Math.abs(durationAMs - durationBMs) / mean
+
+      // The whole point of a shared base: the two sides are near neighbours,
+      // never drawn independently from the full band.
+      expect(relativeGap).toBeLessThanOrEqual(2 * DURATION_JITTER_FRACTION)
+    }
+  })
+
+  it('keeps durations inside the band, jitter included', () => {
+    const lo = BASE_DURATION_MIN_MS * (1 - DURATION_JITTER_FRACTION)
+    const hi = BASE_DURATION_MAX_MS * (1 + DURATION_JITTER_FRACTION)
+    for (let i = 0; i < 200; i++) {
+      const { durationAMs, durationBMs } = rollMatchupDurations(Math.random)
+      for (const d of [durationAMs, durationBMs]) {
+        expect(d).toBeGreaterThanOrEqual(Math.floor(lo))
+        expect(d).toBeLessThanOrEqual(Math.ceil(hi))
+      }
+    }
+  })
+
+  it('moves the base between matchups', () => {
+    // The reason this exists at all: a constant base across fifteen matchups
+    // lets a participant learn the yardstick and score against memory.
+    const bases = new Set<number>()
+    for (let i = 0; i < 50; i++) {
+      const { durationAMs, durationBMs } = rollMatchupDurations(Math.random)
+      bases.add(Math.round((durationAMs + durationBMs) / 2 / 100))
+    }
+    expect(bases.size).toBeGreaterThan(5)
+  })
+
+  it('spans the band rather than hugging its middle', () => {
+    // rand() = 0 and rand() = ~1 must reach the ends, so the band is actually
+    // used. Jitter draws follow the base draw, hence the trailing 0.5s.
+    const low = rollMatchupDurations(seq([0, 0.5, 0.5]))
+    const high = rollMatchupDurations(seq([0.999999, 0.5, 0.5]))
+    expect(low.durationAMs).toBe(BASE_DURATION_MIN_MS)
+    expect(high.durationAMs).toBe(BASE_DURATION_MAX_MS)
   })
 })

@@ -98,18 +98,17 @@ export const EXPERIMENT_KINDS = {
   pairwise: 'pairwise',
 } as const satisfies Record<ExperimentKind, ExperimentKind>
 
+/**
+ * Deliberately carries no duration. A pairwise variant used to declare its own
+ * `baseDurationMs`/`jitterMs`, but durations are a property of the *matchup*
+ * now — both sides share one base, drawn fresh each time — so nothing about
+ * length belongs to a variant's identity. See `rollMatchupDurations` in
+ * `aggregate.ts`.
+ */
 export interface ExperimentVariant {
   id: string
   label: string
   description: string
-  /**
-   * Pairwise experiments only: how long this variant runs for, in ms. The
-   * actual duration is re-rolled per matchup as
-   * `baseDurationMs ± jitterMs` so that identity and length decorrelate —
-   * otherwise "wins often" and "is shortest" are indistinguishable in the data.
-   */
-  baseDurationMs?: number
-  jitterMs?: number
 }
 
 export interface Experiment {

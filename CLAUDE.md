@@ -36,6 +36,7 @@ src/
   routes/            page components (one per route) + root-layout
   router.tsx         route table
   providers/         theme + query providers (compose in app-providers.tsx)
+  hooks/             cross-feature React hooks (feature-specific ones stay put)
   lib/data/          the data abstraction (see README)
   config/site.ts     site name, nav, external links
 ```

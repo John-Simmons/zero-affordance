@@ -64,14 +64,20 @@ describe('mock data provider', () => {
     expect(solidAfter).toBe(solidBefore + 1)
   })
 
-  it('loads the pairwise experiment with per-variant durations', async () => {
+  it('loads the pairwise experiment with identity-only variants', async () => {
     const provider = createMockProvider()
     const exp = await provider.getExperiment('loading-perception')
     expect(exp?.kind).toBe('pairwise')
     expect(exp?.variants).toHaveLength(6)
     for (const v of exp!.variants) {
-      expect(v.baseDurationMs).toBeGreaterThan(0)
-      expect(v.jitterMs).toBeGreaterThan(0)
+      expect(v.id).toBeTruthy()
+      expect(v.label).toBeTruthy()
+      expect(v.description).toBeTruthy()
+      // Durations belong to the matchup, not the variant. A variant that
+      // carried its own would make length part of its identity, which is the
+      // confound `rollMatchupDurations` exists to remove.
+      expect(v).not.toHaveProperty('baseDurationMs')
+      expect(v).not.toHaveProperty('jitterMs')
     }
   })
 

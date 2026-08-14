@@ -18,6 +18,7 @@
  *   click:TEXT     click the first button/link whose text contains TEXT
  *   wait:MS        pause
  *   shot:NAME      screenshot to .screenshots/NAME.png
+ *   size:WxH       emulate a viewport, e.g. size:390x844 for a phone
  *   theme:dark     set the stored theme and reload (also theme:light)
  *   eval:JS        run JS in the page, print the result
  *
@@ -173,6 +174,23 @@ for (const step of steps) {
     const file = join(OUT, `${arg || 'shot'}.png`)
     await writeFile(file, Buffer.from(data, 'base64'))
     console.log(`  shot -> ${file}`)
+  } else if (kind === 'size') {
+    // Tailwind's breakpoints key off width alone, but mobile is a height
+    // problem here too: the matchup area is a fixed h-112 whatever the screen,
+    // so a short viewport is what squeezes the panels. Both numbers matter.
+    const [w, h] = arg.split('x').map(Number)
+    if (!w || !h) {
+      console.error(`  size:${arg} -> expected WxH`)
+      process.exitCode = 1
+    } else {
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: w,
+        height: h,
+        deviceScaleFactor: 1,
+        mobile: true,
+      })
+      console.log(`  size:${w}x${h}`)
+    }
   } else if (kind === 'theme') {
     // The provider reads localStorage on mount, so this needs a reload.
     await evaluate(`localStorage.setItem('za.theme', ${JSON.stringify(arg)})`)

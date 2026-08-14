@@ -72,18 +72,20 @@ insert into public.experiment_variants (id, experiment_id, label, description, p
   ('flat',  'exp_button_affordance', 'Flat text', 'Low-affordance: text-only, no background or border.', 1)
 on conflict (experiment_id, id) do nothing;
 
--- Every variant shares a 2500ms base, jittered ±200ms per matchup. Identical
--- bases decorrelate duration from identity: no variant is systematically the
--- quick one, so "felt faster" cannot collapse into "was shorter".
+-- Variants carry no durations. A matchup draws one base for both sides and
+-- jitters each around it (rollMatchupDurations in src/lib/data/aggregate.ts),
+-- which decorrelates duration from identity: no variant is systematically the
+-- quick one, so "felt faster" cannot collapse into "was shorter". The base
+-- moves between matchups so it cannot be learned across a run either.
 --
 -- Ids must match the keys in src/features/experiments/indicators/index.ts.
 insert into public.experiment_variants
-  (id, experiment_id, label, description, base_duration_ms, jitter_ms, position)
+  (id, experiment_id, label, description, position)
 values
-  ('classic_spinner', 'exp_loading_perception', 'Classic spinner', 'A rotating arc. Signals activity, promises nothing.', 2500, 200, 0),
-  ('progress_bar',    'exp_loading_perception', 'Progress bar', 'A determinate bar filling from empty to full.', 2500, 200, 1),
-  ('skeleton',        'exp_loading_perception', 'Skeleton', 'Shimmering placeholders shaped like the content that is coming.', 2500, 200, 2),
-  ('baking',          'exp_loading_perception', 'Baking a loaf', 'An illustrated bake: dough rises, the oven warms, steam lifts off the loaf.', 2500, 200, 3),
-  ('quote',           'exp_loading_perception', 'Quote', 'Something to read, with an animated ellipsis.', 2500, 200, 4),
-  ('blank',           'exp_loading_perception', 'Blank screen', 'Nothing at all — the control condition.', 2500, 200, 5)
+  ('classic_spinner', 'exp_loading_perception', 'Classic spinner', 'A rotating arc. Signals activity, promises nothing.', 0),
+  ('progress_bar',    'exp_loading_perception', 'Progress bar', 'A determinate bar filling from empty to full.', 1),
+  ('skeleton',        'exp_loading_perception', 'Skeleton', 'Shimmering placeholders shaped like the content that is coming.', 2),
+  ('baking',          'exp_loading_perception', 'Baking a loaf', 'An illustrated bake: dough rises, the oven warms, steam lifts off the loaf.', 3),
+  ('quote',           'exp_loading_perception', 'Quote', 'Something to read, with an animated ellipsis.', 4),
+  ('blank',           'exp_loading_perception', 'Blank screen', 'Nothing at all — the control condition.', 5)
 on conflict (experiment_id, id) do nothing;

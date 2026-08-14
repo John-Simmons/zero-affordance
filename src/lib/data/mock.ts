@@ -9,6 +9,7 @@ import {
   aggregateExperiment,
   aggregateSurvey,
   computeElo,
+  rollMatchupDurations,
   roundRobinPairs,
 } from '@/lib/data/aggregate'
 import type { DataProvider, Unsubscribe } from '@/lib/data/provider'
@@ -128,20 +129,16 @@ const baselineAppeal: Record<string, number> = {
 
 const BASELINE_RUNS = 12
 
-function rollDuration(v: ExperimentVariant, rand: () => number): number {
-  const base = v.baseDurationMs ?? 1500
-  const jitter = v.jitterMs ?? 0
-  return Math.round(base + (rand() * 2 - 1) * jitter)
-}
-
 function baselineMatches(experiment: Experiment): MatchInput[] {
   if (experiment.kind !== 'pairwise') return []
   const rand = mulberry32(hashString(`baseline:${experiment.id}`))
   const rows: MatchInput[] = []
   for (let run = 0; run < BASELINE_RUNS; run++) {
     for (const [a, b] of roundRobinPairs(experiment.variants)) {
-      const durationAMs = rollDuration(a, rand)
-      const durationBMs = rollDuration(b, rand)
+      // Same roll the live runner uses, seeded so the baseline is reproducible.
+      // If these two drifted apart, the synthetic history and real votes would
+      // be handicapped against different duration models.
+      const { durationAMs, durationBMs } = rollMatchupDurations(rand)
       // Longer runs feel slower; appeal stands in for everything else.
       const scoreA = (baselineAppeal[a.id] ?? 0.5) - durationAMs / 6000
       const scoreB = (baselineAppeal[b.id] ?? 0.5) - durationBMs / 6000

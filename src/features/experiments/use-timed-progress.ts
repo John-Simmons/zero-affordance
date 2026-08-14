@@ -47,3 +47,49 @@ export function useTimedProgress(
 
   return progress
 }
+
+/**
+ * Drives `progress` 0 → 1 over and over while `running` is true.
+ *
+ * **Not for the experiment.** `useTimedProgress` above is deliberately the
+ * single clock for a matchup: an indicator that ran to its own beat would drift
+ * from the duration the matchup assigned it, and the Elo handicap corrects for
+ * that exact duration. This one exists only for previews outside a run, where
+ * nothing is being measured, so there is no data for a second clock to corrupt.
+ *
+ * Wraps with a modulo instead of restarting, which is what keeps the loop
+ * clean: the value never lands on 1, so no frame shows a completed animation
+ * before the next pass begins. Re-running `useTimedProgress` by toggling
+ * `running` does exactly that — its `progress` state is not reset, so the old
+ * end state stays on screen until the first new frame lands.
+ */
+export function useLoopingProgress(
+  durationMs: number,
+  running: boolean,
+): number {
+  const [progress, setProgress] = useState(0)
+
+  useEffect(() => {
+    if (!running) return
+    // The modulo makes the cycle boundary seamless, but it cannot help a fresh
+    // start: without this, re-running (reopening a preview that stayed mounted)
+    // renders wherever the last pass stopped until the first frame lands.
+    setProgress(0)
+    let frame = 0
+    const start = performance.now()
+
+    const tick = (now: number) => {
+      // Floored for the same reason the one-shot version clamps: rAF passes the
+      // frame's start time, which can predate `start` and would otherwise make
+      // the modulo negative.
+      const elapsed = Math.max(now - start, 0)
+      setProgress((elapsed % durationMs) / durationMs)
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+
+    return () => cancelAnimationFrame(frame)
+  }, [running, durationMs])
+
+  return progress
+}

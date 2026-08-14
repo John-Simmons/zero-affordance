@@ -43,9 +43,18 @@ export function ExperimentDetailPage() {
         <h1 className="font-heading text-3xl font-semibold tracking-tight text-balance">
           {experiment.title}
         </h1>
-        <p className="mt-2 text-pretty text-muted-foreground">
-          {experiment.description}
-        </p>
+        {/*
+          Pairwise runs render this inside `PairwiseIntro` instead, where it
+          actually briefs the participant. Here it was pure header furniture,
+          and on a phone its six lines pushed the vote buttons below the fold.
+
+          Rating experiments have no intro card to move it to, so they keep it.
+        */}
+        {!isPairwise && (
+          <p className="mt-2 text-pretty text-muted-foreground">
+            {experiment.description}
+          </p>
+        )}
       </header>
 
       <div className="space-y-6">

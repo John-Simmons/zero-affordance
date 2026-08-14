@@ -5,57 +5,7 @@ these touch more than the one-line summary suggests.
 
 ---
 
-## 1. Increase the lorem ipsum length
-
-`src/features/experiments/loaded-content.tsx` — the article that arrives after
-each loading state is a title, byline and two short paragraphs, sized back when
-the canvas was `h-64`. The frame is now `h-112` (~412px during playback), so the
-content leaves a lot of empty space below it.
-
-**Coupled file:** `src/features/experiments/indicators/skeleton-loader.tsx`
-mirrors this layout block for block, and that correspondence is the whole premise
-of a skeleton screen. Edit both together, or the skeleton stops predicting what
-actually arrives.
-
----
-
-## 2. Show whether each matchup vote was right or wrong
-
-After voting, tell the participant whether they picked the one that was actually
-shorter — making it a perception game as well as a data-collection exercise.
-
-The data already exists: `MatchInput` carries `durationAMs` and `durationBMs`, so
-this is decidable client-side with no schema change.
-
-**Decide first — what counts as correct for a "too close to call" vote?**
-Durations differ by at most 400ms on a 2500ms base, and anything under roughly
-125ms is below the just-noticeable difference for waits this long. A tie is often
-the genuinely right answer. Options: correct when the gap is under a threshold,
-always neutral, or never correct.
-
-**Also worth thinking about:** does revealing the answer mid-run teach people to
-game later matchups? That would bias the Elo data this experiment exists to
-collect. Showing the verdict only at the end would avoid it, at the cost of the
-moment-to-moment feedback that makes it fun.
-
----
-
-## 3. Add a perception-accuracy score to the standings
-
-A running tally — "you called 9 of 15 correctly". Depends on the same definition
-as #2, so settle that first.
-
-- Only meaningful for someone who played. Skippers have no matches, so omit it
-  exactly as the per-variant deltas already are.
-- **Frame it carefully.** A low score is the interesting result, not a failure —
-  it is direct evidence that presentation beats duration, which is the
-  hypothesis. Wording that reads as "you got these wrong" undersells the finding.
-- No new data needed; the runner already keeps `myMatches` with both durations
-  and the outcome.
-
----
-
-## 4. Remove the placeholder survey and experiment
+## 1. Remove the placeholder survey and experiment
 
 Retire `srv_tech_habits` ("technology-habits") and `exp_button_affordance`
 ("button-affordance").
@@ -84,13 +34,95 @@ zero entries.
 
 ---
 
+## 2. Fix the global navigation on mobile
+
+`src/components/layout/site-header.tsx` — the `<nav>` is
+`hidden items-center gap-1 sm:flex`, and nothing replaces it below `sm`. There
+is no menu button, no drawer, no overflow menu.
+
+**This is worse than a missing menu.** `src/components/layout/site-footer.tsx`
+carries no links either, so on a phone the wordmark's link to `/` is the _only_
+navigation in the entire app. Three of the four routes in `siteConfig.nav` —
+`/surveys`, `/experiments`, `/about` — have no entry point at all. Anyone who
+lands on an experiment from a shared link is stuck there.
+
+Things to get right:
+
+- **Reach for an installed primitive.** `drawer` is already here (added for the
+  indicator preview, so `vaul` is paid for) and `dropdown-menu` has been here
+  from the start. `sheet` — shadcn's canonical mobile nav, and a side panel
+  rather than a bottom one — is **not** installed but needs no new dependency,
+  being built on the Radix `dialog` already present. Any of the three beats
+  hand-rolling (non-negotiable #1).
+- **Closing on navigation is the classic bug.** A `NavLink` inside an overlay
+  navigates without closing it, so the menu stays open over the new page. The
+  control has to be driven with `onOpenChange` and closed on select.
+- **Keep the active styling.** The desktop nav uses `NavLink`'s `isActive` to
+  bold the current route; the mobile menu should say where you are too, not
+  just list four links.
+- **The trigger needs a name.** An icon-only button must carry an accessible
+  label, and vaul warns if a drawer renders without a title.
+- **`useMediaQuery` exists now** (`src/hooks/use-media-query.ts`) if a JS-side
+  swap is wanted, but a CSS-only `sm:hidden` trigger beside the existing
+  `hidden sm:flex` nav is simpler and needs no JS to stay in step. If the JS
+  route is taken, `sm` is 40rem.
+
+Verify with `scripts/drive.mjs` using the `size:` step at 390x844, checking that
+every route in `siteConfig.nav` is reachable and that the menu closes behind you.
+
+While in here: the vote-button touch-target note under _Smaller, unscheduled_
+applies to a nav menu too — hit areas on a phone are the whole point.
+
+---
+
+## Pending database changes
+
+Schema work on this branch has **not** been applied to any environment yet.
+`supabase db push` is a separate step from the deploy — migrations do not travel
+with the app.
+
+Unapplied migration:
+
+- `supabase/migrations/20260814000000_matchup_durations.sql` — drops
+  `experiment_variants.base_duration_ms` and `.jitter_ms`. Durations moved to
+  the matchup (`rollMatchupDurations` in `src/lib/data/aggregate.ts`), so
+  nothing reads them any more.
+
+**Order matters, and getting it wrong breaks production.** The migration drops
+columns the _currently deployed_ Supabase adapter still names in its `select`.
+Push it before the new code is live and every experiment page 500s on a request
+for columns that no longer exist. So, per environment:
+
+1. Deploy the code that stops selecting those columns.
+2. Only then `supabase db push`.
+
+Reversed, the outage lasts until the deploy catches up.
+
+For dev/staging this is one link + push against the dev project; local and all
+previews share that database, so it also unblocks anyone reviewing the branch.
+For production it is the `dev` → `main` PR **first**, then
+`supabase link --project-ref pjcltrrixmuitgykhzbb && supabase db push`.
+
+`supabase/seed.sql` was updated to match, but note it only runs on a fresh or
+reset database — it will not retire the columns on an environment that already
+has them. That is exactly why the migration exists.
+
+---
+
 ## Smaller, unscheduled
 
-- **Dark mode is unverified.** `scripts/drive.mjs` has a `theme:` step that has
-  never been exercised. The `--success` token and the logo's `currentColor` flip
-  have only ever been seen in light mode.
-- **Four of the six indicators have never been seen rendered** — only the
-  skeleton, progress bar and blank have been screenshotted.
+- **Vote buttons are under the touch-target guideline.** They render at 32px
+  tall — shadcn's `h-8` default — against the usual 44px minimum. `size="lg"` is
+  only 36px, so closing the gap means overriding the design system's default,
+  which is a call worth making across the app rather than in the pairwise runner
+  alone. Left over from the mobile voting-layout work.
+- ~~Dark mode is unverified.~~ The `theme:` step in `scripts/drive.mjs` has now
+  been exercised: the results screen, including `--success` deltas and the
+  standings table, has been screenshotted in dark mode.
+- ~~Four of the six indicators have never been seen rendered.~~ All six have now
+  been screenshotted in light mode, driving the experiment with
+  `scripts/drive.mjs`.
 - **Promote to production** when staging has had a proper play: a `dev` → `main`
-  PR **plus** `supabase link --project-ref pjcltrrixmuitgykhzbb && db push`.
-  Migrations do not travel with the deploy.
+  PR **plus** the database step above. See _Pending database changes_ for the
+  ordering — there is an unapplied column drop that must land after the deploy,
+  not before it.

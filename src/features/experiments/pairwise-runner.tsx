@@ -1,7 +1,10 @@
+import { ArrowRight, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
+import { AccuracyScore } from '@/features/experiments/accuracy-score'
 import { EloResults } from '@/features/experiments/elo-results'
+import { IndicatorPreview } from '@/features/experiments/indicator-preview'
 import { loadingIndicators } from '@/features/experiments/indicators'
 import { LoadedContent } from '@/features/experiments/loaded-content'
 import { useTimedProgress } from '@/features/experiments/use-timed-progress'
@@ -10,7 +13,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
-import { computeElo, roundRobinPairs, START_RATING } from '@/lib/data/aggregate'
+import {
+  computeElo,
+  rollMatchupDurations,
+  roundRobinPairs,
+  START_RATING,
+} from '@/lib/data/aggregate'
 import { useEloAggregate, useRecordMatch } from '@/lib/data/hooks'
 import { cn } from '@/lib/utils'
 import type {
@@ -82,12 +90,6 @@ function shuffle<T>(items: T[]): T[] {
   return out
 }
 
-function rollDuration(v: ExperimentVariant): number {
-  const base = v.baseDurationMs ?? 1500
-  const jitter = v.jitterMs ?? 0
-  return Math.round(base + (Math.random() * 2 - 1) * jitter)
-}
-
 /**
  * Every pairing exactly once, in a random order, with playback order randomised
  * and durations rolled per matchup.
@@ -104,12 +106,11 @@ function rollDuration(v: ExperimentVariant): number {
 function buildRunPlan(variants: ExperimentVariant[]): Matchup[] {
   return shuffle(roundRobinPairs(variants)).map(([x, y]) => {
     const [a, b] = Math.random() < 0.5 ? [x, y] : [y, x]
-    return {
-      a,
-      b,
-      durationAMs: rollDuration(a),
-      durationBMs: rollDuration(b),
-    }
+    // Durations belong to the matchup, not to either variant: both sides share
+    // one base so length never competes with the animation being judged, and
+    // the base moves between matchups so it cannot be learned. Shared with the
+    // mock provider's baseline so both are rated on the same scale.
+    return { a, b, ...rollMatchupDurations(Math.random) }
   })
 }
 
@@ -168,12 +169,40 @@ function RecapPanel({
 
   return (
     // h-full so the pair fills the same box the canvas occupied.
-    <div className="flex h-full flex-col items-center justify-center gap-4 rounded-lg border bg-muted/40 p-4">
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+    //
+    // Tighter chrome below sm. The two panels stack there and split one fixed
+    // frame between them (see grid-rows at the call site), so each gets ~114px
+    // total — and at desktop padding the border, gap and stacked label ate 75%
+    // of that, leaving 28px for the indicator itself. A skeleton rendered as a
+    // single bar. Every pixel taken back here goes straight to the thing the
+    // panel exists to show.
+    <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border bg-muted/40 p-2 sm:gap-4 sm:p-4">
+      {/*
+        w-full because the panel is `items-center`, which leaves this box
+        shrink-to-fit. Percentage-width children contribute nothing to intrinsic
+        width, so a full-bleed indicator like the skeleton collapsed to the
+        width of its one fixed-width bar (w-24) and rendered as a 96px sliver.
+
+        min-h-0 + overflow-hidden is what keeps a full-frame indicator inside
+        the panel — but it only bites because the grid pins the row height; see
+        grid-rows there.
+      */}
+      <div className="flex min-h-0 w-full flex-1 items-start justify-center overflow-hidden sm:items-center">
         {Indicator && <Indicator progress={1} />}
       </div>
-      <div className="text-center">
+      {/*
+        One line below sm ("First · Classic spinner"), two from sm up. Stacking
+        these costs a whole row of the panel's scarce height on a phone, and the
+        position and the name read perfectly well as a single line.
+
+        shrink-0 so this never gives up height to the indicator box above it —
+        the name is what stops the `blank` control reading as a broken panel.
+      */}
+      <div className="flex shrink-0 flex-wrap items-baseline justify-center gap-x-1.5 text-center sm:block">
         <p className="text-xs font-medium text-muted-foreground">{position}</p>
+        <span aria-hidden className="text-xs text-muted-foreground sm:hidden">
+          ·
+        </span>
         <p className="text-sm text-foreground">{variant.label}</p>
       </div>
     </div>
@@ -262,7 +291,11 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
         setMyMatches((prev) => [...prev, input])
         if (round + 1 >= plan.length) {
           setPhase('results')
-          toast.success('All ten matchups done — here are the standings.')
+          // Derived, not written out: the count is C(variants, 2), so it went
+          // from ten to fifteen the moment a sixth indicator was added.
+          toast.success(
+            `All ${plan.length} matchups done — here are the standings.`,
+          )
           return
         }
         setRound((r) => r + 1)
@@ -292,22 +325,58 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
         : undefined
 
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Standings</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <EloResults
-            aggregate={aggregate.data}
-            isLoading={aggregate.isLoading}
-            deltas={deltas}
-            voteCount={myMatches.length}
-          />
-          <Button variant="outline" onClick={restart}>
-            {myMatches.length === 0 ? 'Take the experiment' : 'Take it again'}
-          </Button>
-        </CardContent>
-      </Card>
+      // Own spacing rather than borrowing the route wrapper's, so the two cards
+      // sit correctly wherever this is mounted.
+      <div className="space-y-6">
+        <Button variant="outline" onClick={restart}>
+          {myMatches.length === 0 ? (
+            <>
+              Take the experiment <ArrowRight />
+            </>
+          ) : (
+            <>
+              Take it again <RotateCcw />
+            </>
+          )}
+        </Button>
+
+        {/*
+          Same gate as the deltas above: someone who skipped straight here has
+          nothing to score, and an empty scoreboard would imply they played and
+          got everything wrong. It needs no `aggregate`, so it renders straight
+          away rather than behind the standings' loading skeleton.
+        */}
+        {myMatches.length > 0 && <AccuracyScore matches={myMatches} />}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Standings</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <EloResults
+              aggregate={aggregate.data}
+              isLoading={aggregate.isLoading}
+              deltas={deltas}
+              voteCount={myMatches.length}
+              // The standings render from an aggregate, which carries no copy
+              // and no durations, so the preview has to be built out here where
+              // the seeded variants are. Falling back to the plain name mirrors
+              // the `{Indicator && …}` guard above: a variant that somehow has
+              // no match still gets a readable row.
+              renderLabel={(r) => {
+                const variant = experiment.variants.find(
+                  (v) => v.id === r.variantId,
+                )
+                return variant ? (
+                  <IndicatorPreview variant={variant} />
+                ) : (
+                  r.label
+                )
+              }}
+            />
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 
@@ -389,7 +458,14 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
             )}
 
             {stage === 'voting' && (
-              <div className="grid h-full gap-4 sm:grid-cols-2">
+              // Explicit rows, because implicit ones are `auto`: they size to
+              // the tallest panel and happily overflow the frame. A full-frame
+              // indicator (the skeleton) then pushed the panels past the vote
+              // buttons and out of the card, and no amount of overflow-hidden
+              // below could help — nothing had a bounded height to clip
+              // against. minmax(0, 1fr), which is what grid-rows-N expands to,
+              // pins each row to its share of the frame instead.
+              <div className="grid h-full grid-rows-2 gap-4 sm:grid-cols-2 sm:grid-rows-1">
                 <RecapPanel variant={matchup.a} position="First" />
                 <RecapPanel variant={matchup.b} position="Second" />
               </div>

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -8,7 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { START_RATING } from '@/lib/data/aggregate'
-import type { EloAggregate } from '@/lib/data/types'
+import type { EloAggregate, EloRating } from '@/lib/data/types'
 
 /**
  * The participant's own effect on one rating.
@@ -34,6 +36,7 @@ export function EloResults({
   isLoading,
   deltas,
   voteCount,
+  renderLabel,
 }: {
   aggregate: EloAggregate | undefined
   isLoading: boolean
@@ -46,6 +49,16 @@ export function EloResults({
    * silently.
    */
   voteCount?: number
+  /**
+   * Wraps the variant name, for callers that can make it do more than sit
+   * there. Defaults to plain text.
+   *
+   * Inverted rather than reaching for the indicator components directly: this
+   * table renders from an `EloAggregate` and nothing else, and an aggregate
+   * carries no `description` and no duration. Only the caller holds the seeded
+   * variants, so only the caller can build a preview worth showing.
+   */
+  renderLabel?: (rating: EloRating) => ReactNode
 }) {
   if (isLoading || !aggregate) return <Skeleton className="h-64 w-full" />
 
@@ -84,7 +97,9 @@ export function EloResults({
               <TableCell className="text-muted-foreground tabular-nums">
                 {i + 1}
               </TableCell>
-              <TableCell className="font-medium">{r.label}</TableCell>
+              <TableCell className="font-medium">
+                {renderLabel ? renderLabel(r) : r.label}
+              </TableCell>
               <TableCell className="text-right tabular-nums">
                 {Math.round(r.rating)}
                 {deltas && (

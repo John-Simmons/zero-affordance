@@ -2,6 +2,7 @@ import { NavLink } from 'react-router'
 import { TvMinimalPlay } from 'lucide-react'
 
 import { Container } from '@/components/layout/container'
+import { MobileNav } from '@/components/layout/mobile-nav'
 import { ThemeToggle } from '@/components/layout/theme-toggle'
 import { Button } from '@/components/ui/button'
 import { siteConfig } from '@/config/site'
@@ -15,7 +16,12 @@ export function SiteHeader() {
           {siteConfig.name}
         </NavLink>
 
-        <nav className="ml-2 hidden items-center gap-1 sm:flex">
+        {/* Labelled because the footer now has a nav too — without names the
+            two landmarks are indistinguishable to a screen reader. */}
+        <nav
+          aria-label="Main"
+          className="ml-2 hidden items-center gap-1 sm:flex"
+        >
           {siteConfig.nav.map((item) => (
             <NavLink
               key={item.href}
@@ -45,6 +51,7 @@ export function SiteHeader() {
             </a>
           </Button>
           <ThemeToggle />
+          <MobileNav />
         </div>
       </Container>
     </header>

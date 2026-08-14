@@ -98,11 +98,11 @@ export const seedExperiments: Experiment[] = [
     metricLabel: 'Which one felt faster?',
     metricMin: 0,
     metricMax: 0,
-    // Every variant shares the same 2500ms base, jittered ±200ms per matchup.
-    // Identical bases decorrelate duration from identity outright: no variant is
+    // Variants declare no durations at all. A matchup draws one base for both
+    // sides and jitters each around it (`rollMatchupDurations` in aggregate.ts),
+    // which decorrelates duration from identity outright: no variant is
     // systematically the quick one, so "felt faster" cannot collapse into "was
-    // shorter". The jitter is what remains for the Elo handicap to correct, and
-    // it is symmetric across variants.
+    // shorter". The base moves between matchups so it cannot be learned either.
     // Ids must match the keys in `features/experiments/indicators/index.ts`.
     // They also deliberately differ from the retired text placeholders
     // (dots/spinner/percent/bar/phases): reusing an id would fold matches
@@ -112,45 +112,33 @@ export const seedExperiments: Experiment[] = [
         id: 'classic_spinner',
         label: 'Classic spinner',
         description: 'A rotating arc. Signals activity, promises nothing.',
-        baseDurationMs: 2500,
-        jitterMs: 200,
       },
       {
         id: 'progress_bar',
         label: 'Progress bar',
         description: 'A determinate bar filling from empty to full.',
-        baseDurationMs: 2500,
-        jitterMs: 200,
       },
       {
         id: 'skeleton',
         label: 'Skeleton',
         description:
           'Shimmering placeholders shaped like the content that is coming.',
-        baseDurationMs: 2500,
-        jitterMs: 200,
       },
       {
         id: 'baking',
         label: 'Baking a loaf',
         description:
           'An illustrated bake: dough rises, the oven warms, steam lifts off the loaf.',
-        baseDurationMs: 2500,
-        jitterMs: 200,
       },
       {
         id: 'quote',
         label: 'Quote',
         description: 'Something to read, with an animated ellipsis.',
-        baseDurationMs: 2500,
-        jitterMs: 200,
       },
       {
         id: 'blank',
         label: 'Blank screen',
         description: 'Nothing at all — the control condition.',
-        baseDurationMs: 2500,
-        jitterMs: 200,
       },
     ],
   },

@@ -136,12 +136,70 @@ export const K_FACTOR = 24
  * happened to be in the seed when it was written, and would quietly mis-rate
  * every match if those durations changed.
  *
- * Calibration: variants share a 2500ms base with ±200ms of jitter, so the widest
- * gap is 400ms ≈ 16% relative. At 900 points that implies a ~0.70 expected score
- * for the shorter one — roughly twice the just-noticeable difference for waits
- * this long, so clearly perceptible but not a foregone conclusion.
+ * Calibration: the two sides of a matchup sit within
+ * {@link DURATION_JITTER_FRACTION} of a shared base, so the widest gap between
+ * them is twice that — 16% relative, whatever the base happens to be. At 900
+ * points that implies a ~0.70 expected score for the shorter one, roughly twice
+ * the just-noticeable difference for waits this long: clearly perceptible but
+ * not a foregone conclusion.
+ *
+ * That the gap is expressed as a fraction is what keeps this paragraph true.
+ * The previous version reasoned from a fixed 2500ms base and a fixed ±200ms,
+ * and would have gone stale the moment the base started varying.
  */
 export const DURATION_HANDICAP_FULL = 900
+
+/**
+ * The band a matchup's shared base duration is drawn from.
+ *
+ * One base per matchup, re-rolled for the next, so no participant can learn how
+ * long "a wait" is here and start scoring against a remembered yardstick rather
+ * than against what they just watched. Fifteen matchups at a constant base gave
+ * fourteen chances to calibrate; this gives none.
+ *
+ * Both variants in a matchup share the base — varying it *within* a matchup
+ * would put duration back in competition with the animation itself, which is
+ * the one thing the design is trying to isolate.
+ */
+export const BASE_DURATION_MIN_MS = 1800
+export const BASE_DURATION_MAX_MS = 3600
+
+/**
+ * How far each side may deviate from its matchup's base, as a fraction of it.
+ *
+ * A fraction rather than a fixed number of milliseconds so the judgement is
+ * equally hard at every base — the same reasoning that makes the handicap above
+ * relative. At a fixed ±200ms the gap would be 22% of an 1800ms base but 11% of
+ * a 3600ms one, and "how obvious was the difference" would quietly become a
+ * second variable riding along with the base.
+ */
+export const DURATION_JITTER_FRACTION = 0.08
+
+/**
+ * The two durations for one matchup: a shared base from the band, then an
+ * independent jitter each.
+ *
+ * `rand` is injected rather than reaching for `Math.random` so the mock
+ * provider can generate a reproducible baseline from a seeded generator while
+ * the live runner stays genuinely random. Both must roll durations the same
+ * way — the Elo handicap reads these numbers, so a baseline built on a
+ * different model would be rated on a different scale from real votes.
+ *
+ * The two can still land on the same millisecond, roughly once every thirty
+ * runs. {@link scoreAccuracy} drops those rather than marking them, because
+ * there was no shorter one to have picked.
+ */
+export function rollMatchupDurations(rand: () => number): {
+  durationAMs: number
+  durationBMs: number
+} {
+  const base =
+    BASE_DURATION_MIN_MS +
+    rand() * (BASE_DURATION_MAX_MS - BASE_DURATION_MIN_MS)
+  const spread = base * DURATION_JITTER_FRACTION
+  const roll = () => Math.round(base + (rand() * 2 - 1) * spread)
+  return { durationAMs: roll(), durationBMs: roll() }
+}
 
 /** Probability `ratingA` beats `ratingB`, given A's duration handicap. */
 function expectedScore(
@@ -236,6 +294,52 @@ export function computeElo(
   )
 
   return { experimentId: experiment.id, totalMatches, ratings }
+}
+
+/** How well a participant's votes matched the durations that actually ran. */
+export interface AccuracyScore {
+  /** Matchups where they named the animation that really was shorter. */
+  correct: number
+  /** The denominator — matchups that could be marked at all. */
+  scored: number
+  /** Matchups excluded because they were called too close to call. */
+  ties: number
+}
+
+/**
+ * Score a run against the durations that actually ran.
+ *
+ * "Too close to call" is excluded rather than marked wrong, denominator and
+ * all: the widest gap on offer is 16% of the base either way, close enough to
+ * the just-noticeable difference for waits this long that a tie is frequently
+ * the honest answer. Marking it would penalise the most defensible vote
+ * available.
+ *
+ * Matchups where both animations ran for exactly the same time are excluded
+ * too — there was no shorter one to have picked. Not hypothetical: both sides
+ * jitter around a shared base and land on whole milliseconds, so a collision
+ * turns up in roughly one run in thirty. They are deliberately NOT folded into
+ * `ties`, because that count exists to back the on-screen note about tie votes,
+ * and quietly inflating it would make that note a lie.
+ */
+export function scoreAccuracy(matches: MatchInput[]): AccuracyScore {
+  let correct = 0
+  let scored = 0
+  let ties = 0
+
+  for (const m of matches) {
+    if (m.outcome === 'tie') {
+      ties += 1
+      continue
+    }
+    if (m.durationAMs === m.durationBMs) continue
+
+    scored += 1
+    const shorter = m.durationAMs < m.durationBMs ? 'a' : 'b'
+    if (m.outcome === shorter) correct += 1
+  }
+
+  return { correct, scored, ties }
 }
 
 /**

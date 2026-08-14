@@ -141,17 +141,37 @@
 /* ---------------------------------------------------------------------------
    Loading-indicator keyframes (src/features/experiments/indicators/).
    Referenced via arbitrary animation utilities, e.g.
-   `animate-[shimmer_1.6s_linear_infinite]`, so no @theme entry is needed.
+   `animate-[shimmer_1.1s_linear_infinite]`, so no @theme entry is needed.
    --------------------------------------------------------------------------- */
 
-/* Travelling highlight for the skeleton loader. Slides a 200%-wide gradient
-   across the bar; `animate-pulse` fades in place and reads quite differently. */
+/* Travelling highlight for the skeleton loader; `animate-pulse` fades in place
+   and reads quite differently.
+
+   Sweeps the highlight with `transform` rather than `background-position`. The
+   old version animated a repeating 200%-wide gradient from 150% to -150%, and
+   percentage background-position resolves against (positioning area - image
+   width) — with a 2W-wide tile in a W-wide box that is a 3W journey across a
+   pattern that repeats every 2W. Travel and period did not divide, so every
+   restart teleported the highlight half a tile. Visible as a snap.
+
+   Here the loop is seamless by construction instead of by arithmetic: the
+   sweeping element is 200% of the bar, and both keyframes park it completely
+   outside the bar's overflow-hidden box (-100% = 2W left of it, 50% = 1W right
+   of it). First and last frames both draw no highlight at all, so they match
+   whatever the widths are — nothing to keep in sync if the bar is resized.
+
+   Transform also composites, where background-position repaints each bar every
+   frame; the skeleton renders ~24 of these at once.
+
+   A consequence worth knowing: because both endpoints sit outside the box, the
+   duration is a free parameter — retiming the sweep cannot bring the snap back.
+   It lives on the utility in skeleton-loader.tsx, so change it there. */
 @keyframes shimmer {
   from {
-    background-position: 150% 0;
+    transform: translateX(-100%);
   }
   to {
-    background-position: -150% 0;
+    transform: translateX(50%);
   }
 }
 

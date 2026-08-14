@@ -66,8 +66,6 @@ interface VariantRow {
   id: string
   label: string
   description: string
-  base_duration_ms: number | null
-  jitter_ms: number | null
 }
 interface MatchRow {
   variant_a_id: string
@@ -130,7 +128,7 @@ export function createSupabaseProvider(
 
     const { data: variants, error: vErr } = await client
       .from('experiment_variants')
-      .select('id, label, description, base_duration_ms, jitter_ms')
+      .select('id, label, description')
       .eq('experiment_id', exp.id)
       .order('position', { ascending: true })
       .returns<VariantRow[]>()
@@ -150,8 +148,6 @@ export function createSupabaseProvider(
         id: v.id,
         label: v.label,
         description: v.description,
-        baseDurationMs: v.base_duration_ms ?? undefined,
-        jitterMs: v.jitter_ms ?? undefined,
       })),
     }
   }
