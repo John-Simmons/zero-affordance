@@ -7,6 +7,7 @@
  */
 import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 
 import { getDataProvider } from '@/lib/data'
 import type {
@@ -225,18 +226,24 @@ export function useCreateVideoIdea(visitorId: string) {
 /**
  * Optimistic, because a vote is a tap on a counter and waiting a round trip to
  * see it move feels broken. Rolled back on error and reconciled from the
- * server's own count on success, so a failed or raced toggle cannot leave the
+ * server's own count on success, so a failed or raced vote cannot leave the
  * list showing a number the backend disagrees with.
+ *
+ * Takes the intended state rather than flipping the current one. A rollback and
+ * a genuine un-vote look identical on screen, so when the write was a toggle,
+ * one duplicated request read to the visitor as "the site took my vote away" —
+ * and left the server agreeing with that. `voted` comes from what the visitor
+ * could see when they tapped, so a real second tap still un-votes.
  */
-export function useToggleIdeaVote(visitorId: string) {
+export function useSetIdeaVote(visitorId: string) {
   const queryClient = useQueryClient()
   const key = queryKeys.videoIdeas(visitorId)
 
   return useMutation({
-    mutationFn: (ideaId: string) =>
-      getDataProvider().toggleIdeaVote(ideaId, visitorId),
+    mutationFn: ({ ideaId, voted }: { ideaId: string; voted: boolean }) =>
+      getDataProvider().setIdeaVote(ideaId, visitorId, voted),
 
-    onMutate: async (ideaId) => {
+    onMutate: async ({ ideaId, voted }) => {
       await queryClient.cancelQueries({ queryKey: key })
       const previous = queryClient.getQueryData<VideoIdea[]>(key)
       queryClient.setQueryData<VideoIdea[]>(key, (old) =>
@@ -244,8 +251,13 @@ export function useToggleIdeaVote(visitorId: string) {
           i.id === ideaId
             ? {
                 ...i,
-                votedByVisitor: !i.votedByVisitor,
-                voteCount: i.voteCount + (i.votedByVisitor ? -1 : 1),
+                votedByVisitor: voted,
+                // Only moves when the flag actually changes, so a redundant
+                // call cannot drift the count off the row it is counting.
+                voteCount:
+                  i.votedByVisitor === voted
+                    ? i.voteCount
+                    : i.voteCount + (voted ? 1 : -1),
               }
             : i,
         ),
@@ -253,8 +265,11 @@ export function useToggleIdeaVote(visitorId: string) {
       return { previous }
     },
 
-    onError: (_err, _ideaId, context) => {
+    onError: (_err, _variables, context) => {
       if (context?.previous) queryClient.setQueryData(key, context.previous)
+      // Without this the rollback is the only feedback, and a failed write is
+      // indistinguishable from the site quietly discarding the vote.
+      toast.error('Could not save your vote. Try again in a moment.')
     },
 
     onSuccess: (result) => {
@@ -269,6 +284,13 @@ export function useToggleIdeaVote(visitorId: string) {
             : i,
         ),
       )
+    },
+
+    // Belt and braces over the write above: if a realtime refetch was already
+    // in flight when the vote landed, its older answer can arrive last and win.
+    // This guarantees one more read after everything has settled.
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: key })
     },
   })
 }

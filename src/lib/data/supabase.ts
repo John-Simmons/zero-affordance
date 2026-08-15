@@ -410,19 +410,21 @@ export function createSupabaseProvider(
       }
     },
 
-    async toggleIdeaVote(
+    async setIdeaVote(
       ideaId: string,
       visitorId: string,
+      voted: boolean,
     ): Promise<IdeaVoteResult> {
-      const { data, error } = await client.rpc('toggle_idea_vote', {
+      const { data, error } = await client.rpc('set_idea_vote', {
         p_idea_id: ideaId,
         p_visitor_id: visitorId,
+        p_voted: voted,
       })
       if (error) throw error
       const row = (
         data as { idea_id: string; vote_count: number; voted: boolean }[] | null
       )?.[0]
-      if (!row) throw new Error('toggle_idea_vote returned no row')
+      if (!row) throw new Error('set_idea_vote returned no row')
       return {
         ideaId: row.idea_id,
         voteCount: row.vote_count,

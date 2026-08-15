@@ -353,21 +353,19 @@ export function createMockProvider(): DataProvider {
       return { ...row, voteCount: 0, votedByVisitor: false }
     },
 
-    async toggleIdeaVote(ideaId, visitorId) {
+    async setIdeaVote(ideaId, visitorId, voted) {
       const votes = readArray<StoredIdeaVote>(IDEA_VOTES_KEY)
+      // Dropping the row first makes the insert branch an upsert, so calling
+      // this twice with the same `voted` lands on the same state — the point of
+      // a set over a toggle, and what `on conflict do nothing` buys in SQL.
       const without = votes.filter(
         (v) => !(v.ideaId === ideaId && v.visitorId === visitorId),
       )
-      const voted = without.length === votes.length
-      writeArray(
-        IDEA_VOTES_KEY,
-        voted ? [...without, { ideaId, visitorId }] : without,
-      )
+      const next = voted ? [...without, { ideaId, visitorId }] : without
+      writeArray(IDEA_VOTES_KEY, next)
       // Recounted rather than tracked, mirroring the SQL function — the count
       // can never disagree with the rows it is derived from.
-      const voteCount = (
-        voted ? [...without, { ideaId, visitorId }] : without
-      ).filter((v) => v.ideaId === ideaId).length
+      const voteCount = next.filter((v) => v.ideaId === ideaId).length
       return { ideaId, voteCount, voted }
     },
 

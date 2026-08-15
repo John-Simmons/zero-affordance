@@ -16,13 +16,18 @@ import type { VideoIdea } from '@/lib/data/types'
 export function IdeaList({
   ideas,
   isLoading,
-  onToggleVote,
-  isVoting,
+  onSetVote,
+  pendingIdeaId,
 }: {
   ideas: VideoIdea[] | undefined
   isLoading: boolean
-  onToggleVote: (ideaId: string) => void
-  isVoting?: boolean
+  /**
+   * Reports the state the visitor asked for, not "flip it" — the caller must
+   * not have to guess how many times this fired.
+   */
+  onSetVote: (ideaId: string, voted: boolean) => void
+  /** The one idea with a vote in flight, if any. Only its button locks. */
+  pendingIdeaId?: string | null
 }) {
   if (isLoading || !ideas) {
     return (
@@ -57,8 +62,11 @@ export function IdeaList({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => onToggleVote(idea.id)}
-                disabled={isVoting}
+                onClick={() => onSetVote(idea.id, !idea.votedByVisitor)}
+                // Locked only while this idea's own vote is in flight: it stops
+                // a second tap from racing the first, without freezing the rest
+                // of the board over one slow request.
+                disabled={pendingIdeaId === idea.id}
                 aria-pressed={idea.votedByVisitor}
                 aria-label={`Upvote “${idea.title}”`}
                 className={cn(

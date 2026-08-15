@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { Container } from '@/components/layout/container'
 import { IdeaForm } from '@/features/ideas/idea-form'
 import { IdeaList } from '@/features/ideas/idea-list'
-import { useToggleIdeaVote, useVideoIdeas } from '@/lib/data/hooks'
+import { useSetIdeaVote, useVideoIdeas } from '@/lib/data/hooks'
 import { getVisitorId } from '@/lib/visitor'
 
 export function IdeasPage() {
@@ -12,7 +12,7 @@ export function IdeasPage() {
   const visitorId = useMemo(() => getVisitorId(), [])
 
   const ideas = useVideoIdeas(visitorId)
-  const toggleVote = useToggleIdeaVote(visitorId)
+  const setVote = useSetIdeaVote(visitorId)
 
   return (
     <Container className="max-w-2xl py-12">
@@ -33,7 +33,8 @@ export function IdeasPage() {
       <IdeaList
         ideas={ideas.data}
         isLoading={ideas.isLoading}
-        onToggleVote={(id) => toggleVote.mutate(id)}
+        onSetVote={(ideaId, voted) => setVote.mutate({ ideaId, voted })}
+        pendingIdeaId={setVote.isPending ? setVote.variables.ideaId : null}
       />
     </Container>
   )

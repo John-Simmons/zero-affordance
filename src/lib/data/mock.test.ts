@@ -98,7 +98,7 @@ describe('mock data provider', () => {
       expect(ideas[0].votedByVisitor).toBe(false)
     })
 
-    it('toggles a vote on and back off', async () => {
+    it('sets a vote on and back off', async () => {
       // The contract the Postgres function has to match. This is the one place
       // the two adapters could silently drift, so it is pinned on both sides.
       const provider = createMockProvider()
@@ -107,11 +107,38 @@ describe('mock data provider', () => {
         description: 'The psychology of undo.',
       })
 
-      const on = await provider.toggleIdeaVote(idea.id, VISITOR)
+      const on = await provider.setIdeaVote(idea.id, VISITOR, true)
       expect(on).toEqual({ ideaId: idea.id, voteCount: 1, voted: true })
 
-      const off = await provider.toggleIdeaVote(idea.id, VISITOR)
+      const off = await provider.setIdeaVote(idea.id, VISITOR, false)
       expect(off).toEqual({ ideaId: idea.id, voteCount: 0, voted: false })
+    })
+
+    it('is idempotent, so a duplicated request cannot undo the vote', async () => {
+      // The regression this API shape exists for. When the write was a toggle,
+      // one tap delivered twice — a double tap, or a browser re-sending a POST
+      // over a dead keep-alive connection — left the vote off and the visitor
+      // watching it vanish.
+      const provider = createMockProvider()
+      const idea = await provider.createVideoIdea({
+        title: 'Retries',
+        description: 'Requests that arrive twice.',
+      })
+
+      const first = await provider.setIdeaVote(idea.id, VISITOR, true)
+      const second = await provider.setIdeaVote(idea.id, VISITOR, true)
+      expect(second).toEqual(first)
+      expect((await provider.listVideoIdeas(VISITOR))[0]).toMatchObject({
+        voteCount: 1,
+        votedByVisitor: true,
+      })
+
+      await provider.setIdeaVote(idea.id, VISITOR, false)
+      await provider.setIdeaVote(idea.id, VISITOR, false)
+      expect((await provider.listVideoIdeas(VISITOR))[0]).toMatchObject({
+        voteCount: 0,
+        votedByVisitor: false,
+      })
     })
 
     it('counts one vote per visitor, not per click', async () => {
@@ -121,14 +148,14 @@ describe('mock data provider', () => {
         description: 'Why forms feel slow.',
       })
 
-      await provider.toggleIdeaVote(idea.id, VISITOR)
-      await provider.toggleIdeaVote(idea.id, 'visitor-b')
+      await provider.setIdeaVote(idea.id, VISITOR, true)
+      await provider.setIdeaVote(idea.id, 'visitor-b', true)
       expect((await provider.listVideoIdeas(VISITOR))[0].voteCount).toBe(2)
 
-      // Same visitor again just removes their own vote — it can never add a
-      // second one.
-      await provider.toggleIdeaVote(idea.id, 'visitor-b')
-      await provider.toggleIdeaVote(idea.id, 'visitor-b')
+      // Voting again as the same visitor is a no-op — it can never add a
+      // second vote to the same idea.
+      await provider.setIdeaVote(idea.id, 'visitor-b', true)
+      await provider.setIdeaVote(idea.id, 'visitor-b', true)
       expect((await provider.listVideoIdeas(VISITOR))[0].voteCount).toBe(2)
     })
 
@@ -138,7 +165,7 @@ describe('mock data provider', () => {
         title: 'Loading',
         description: 'Perceived duration.',
       })
-      await provider.toggleIdeaVote(idea.id, VISITOR)
+      await provider.setIdeaVote(idea.id, VISITOR, true)
 
       expect((await provider.listVideoIdeas(VISITOR))[0].votedByVisitor).toBe(
         true,
@@ -156,9 +183,10 @@ describe('mock data provider', () => {
         title: 'Anonymous',
         description: 'Should not be attributable.',
       })
-      await provider.toggleIdeaVote(
+      await provider.setIdeaVote(
         (await provider.listVideoIdeas(VISITOR))[0].id,
         VISITOR,
+        true,
       )
 
       const raw = localStorage.getItem('za.mock.videoIdeas') ?? ''
@@ -175,7 +203,7 @@ describe('mock data provider', () => {
         title: 'Popular',
         description: 'One vote.',
       })
-      await provider.toggleIdeaVote(popular.id, VISITOR)
+      await provider.setIdeaVote(popular.id, VISITOR, true)
 
       const ideas = await provider.listVideoIdeas(VISITOR)
       expect(ideas.map((i) => i.id)).toEqual([popular.id, quiet.id])

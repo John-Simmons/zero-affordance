@@ -55,8 +55,18 @@ export interface DataProvider {
   listVideoIdeas(visitorId: string): Promise<VideoIdea[]>
   /** Validates and trims via `normalizeIdea`; throws on anything out of bounds. */
   createVideoIdea(input: VideoIdeaInput): Promise<VideoIdea>
-  /** Adds or removes this visitor's single vote, and reports the new state. */
-  toggleIdeaVote(ideaId: string, visitorId: string): Promise<IdeaVoteResult>
+  /**
+   * Sets this visitor's single vote to `voted`, and reports the new state.
+   *
+   * Deliberately a set rather than a toggle: a toggle's outcome depends on how
+   * many times the call arrives, so one duplicated request silently undoes the
+   * vote. Calling this twice with the same `voted` is a no-op.
+   */
+  setIdeaVote(
+    ideaId: string,
+    visitorId: string,
+    voted: boolean,
+  ): Promise<IdeaVoteResult>
 
   /**
    * Optional realtime hook. Adapters that cannot stream may omit it; callers
