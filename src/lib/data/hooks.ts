@@ -265,10 +265,13 @@ export function useSetIdeaVote(visitorId: string) {
       return { previous }
     },
 
-    onError: (_err, _variables, context) => {
+    onError: (err, _variables, context) => {
       if (context?.previous) queryClient.setQueryData(key, context.previous)
-      // Without this the rollback is the only feedback, and a failed write is
-      // indistinguishable from the site quietly discarding the vote.
+      // Without these the rollback is the only feedback, and a failed write is
+      // indistinguishable from the site quietly discarding the vote. The toast
+      // is for the visitor; the log carries the PostgREST code, which is the
+      // part that says *why* — and which React Query otherwise swallows.
+      console.error('setIdeaVote failed', err)
       toast.error('Could not save your vote. Try again in a moment.')
     },
 
