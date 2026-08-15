@@ -22,12 +22,13 @@ describe('HomePage', () => {
 
     expect(screen.getByText(siteConfig.tagline)).toBeInTheDocument()
     // The hero is intentionally CTA-free — navigation lives in the section
-    // cards below it, so assert on those links instead. Both now lead to the
-    // one catalogue; the cards still explain the two kinds separately.
-    const links = screen.getAllByRole('link', { name: /browse studies/i })
-    expect(links).toHaveLength(2)
-    for (const link of links) {
-      expect(link).toHaveAttribute('href', '/studies')
-    }
+    // cards below it, so assert on those links instead. One card per content
+    // section of the site: the studies catalogue and the ideas board.
+    expect(
+      screen.getByRole('link', { name: /browse studies/i }),
+    ).toHaveAttribute('href', '/studies')
+    expect(
+      screen.getByRole('link', { name: /see the ideas/i }),
+    ).toHaveAttribute('href', '/ideas')
   })
 })

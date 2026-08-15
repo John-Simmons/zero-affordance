@@ -1,4 +1,5 @@
-import { ArrowRight, FlaskConical, ListChecks } from 'lucide-react'
+import { ArrowRight, FlaskConical, Lightbulb } from 'lucide-react'
+import { useMemo } from 'react'
 import { Link } from 'react-router'
 
 import { Container } from '@/components/layout/container'
@@ -13,11 +14,24 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { siteConfig } from '@/config/site'
-import { useExperiments, useSurveys } from '@/lib/data/hooks'
+import { useExperiments, useSurveys, useVideoIdeas } from '@/lib/data/hooks'
+import { getVisitorId } from '@/lib/visitor'
 
 export function HomePage() {
   const surveys = useSurveys()
   const experiments = useExperiments()
+
+  // Same read-once-per-mount rule as the ideas page: the id is a query key, so
+  // a fresh value each render would thrash the cache.
+  const visitorId = useMemo(() => getVisitorId(), [])
+  const ideas = useVideoIdeas(visitorId)
+
+  // Only meaningful once both catalogue queries have landed — a badge that
+  // counts half the studies is worse than no badge for a beat.
+  const studyCount =
+    surveys.data && experiments.data
+      ? surveys.data.length + experiments.data.length
+      : undefined
 
   return (
     <div>
@@ -34,27 +48,26 @@ export function HomePage() {
       </section>
 
       {/*
-        Both cards lead to the one catalogue now. They stay because they do
-        editorial work the catalogue does not — explaining what a survey is
-        versus an experiment — and pointing them at the old paths would mean
-        the homepage relied on the site's own redirects.
+        One card per destination in the nav's two content sections. The old
+        Surveys/Experiments split predates the combined catalogue and had both
+        cards pointing at /studies, which read as a duplicated link.
       */}
       <Container className="grid gap-6 py-16 md:grid-cols-2">
         <SectionCard
-          icon={<ListChecks className="size-5" />}
-          title="Surveys"
-          description="Quick self-reports whose results update live as the community responds."
+          icon={<FlaskConical className="size-5" />}
+          title="Studies"
+          description="Surveys to answer and experiments to take part in, with results that update live as the community responds."
           href="/studies"
           cta="Browse studies"
-          count={surveys.data?.length}
+          count={studyCount}
         />
         <SectionCard
-          icon={<FlaskConical className="size-5" />}
-          title="Experiments"
-          description="Interactive A/B-style studies on how design shapes perception and behavior."
-          href="/studies"
-          cta="Browse studies"
-          count={experiments.data?.length}
+          icon={<Lightbulb className="size-5" />}
+          title="Video Ideas"
+          description="Suggest what the channel should cover next, and vote for the topics you want to watch."
+          href="/ideas"
+          cta="See the ideas"
+          count={ideas.data?.length}
         />
       </Container>
     </div>

@@ -16,7 +16,7 @@ export const siteConfig = {
   nav: [
     { title: 'Home', href: '/' },
     { title: 'Studies', href: '/studies' },
-    { title: 'Ideas', href: '/ideas' },
+    { title: 'Video Ideas', href: '/ideas' },
     { title: 'About', href: '/about' },
   ] satisfies NavItem[],
 } as const
