@@ -5,132 +5,47 @@ these touch more than the one-line summary suggests.
 
 ---
 
-## 1. Remove the placeholder survey and experiment
-
-Retire `srv_tech_habits` ("technology-habits") and `exp_button_affordance`
-("button-affordance").
-
-Wider than the seed files:
-
-- `src/lib/data/seed.ts` **and** `supabase/seed.sql` — both mirrors
-- **A migration** to delete the rows from environments that already ran the old
-  seed. `db push` does not run `seed.sql`, so a seed edit alone leaves them live
-  on dev and prod.
-- `src/lib/data/mock.ts` — the synthetic baselines (`baselineChoice`,
-  `baselineScale`, `baselineExperiment`) are keyed by those exact question and
-  variant ids
-- `src/lib/data/mock.test.ts` — several tests load those ids directly
-- `src/features/experiments/experiment-runner.tsx` — `VariantStimulus`
-  hard-codes the `solid` and `flat` cases
-
-**Open question:** removing `button-affordance` leaves the entire rating-kind
-path — `ExperimentRunner`, `assignVariant`, `recordInteraction`,
-`aggregateExperiment`, the `experiment_interactions` table — with no consumer.
-Keep it if another rating experiment is coming; otherwise delete it deliberately
-rather than leaving it to rot.
-
-Check the home page counts and the surveys index still read sensibly with one or
-zero entries.
-
----
-
-## 2. Change the mobile nav menu location
-
-The menu works but sits on the wrong side. `MobileNav` is currently the last
-child of the header's right icon cluster in
-`src/components/layout/site-header.tsx`, and its sheet is `side="right"`.
-
-Wanted: the hamburger as the **first** child of the `Container` row, before the
-wordmark, with the sheet opening from the **left** — the near-universal mobile
-convention, and it keeps the trigger and the panel on the same edge.
-
-- Both halves live in `src/components/layout/mobile-nav.tsx`; moving the
-  `<MobileNav />` element in the header and flipping `side="left"` is the whole
-  change. `sm:hidden` is on the trigger button itself, so it travels with it.
-- **Optical alignment will need a nudge.** `Container` is `px-4`, and a ghost
-  icon button carries its own padding, so the glyph will read inset from the
-  gutter the wordmark currently sits on. Expect a small negative margin
-  (`-ml-1.5`ish); confirm against a screenshot rather than by eye in code.
-- The wordmark shifts right by roughly the button's width. Check the header
-  still breathes at 320px, where "Zero Affordance" is already close to the
-  YouTube and theme buttons.
-- `site-header.test.tsx` queries by role and accessible name, not by position,
-  so the existing tests should survive the move — but they are the proof, so
-  re-run them rather than assuming.
-- Verify at 390x844 with `scripts/drive.mjs`. Note its `click:TEXT` step cannot
-  press this trigger: the step matches on `textContent` and an icon-only button
-  named by `aria-label` has none. Drive it with
-  `eval:document.querySelector('[aria-haspopup=dialog]').click()` — that
-  selector is unique to this trigger, since the theme toggle is
-  `aria-haspopup="menu"`.
-
----
-
-## 3. Add a video topic survey
-
-A survey covering two things: which video topics people actually want, and
-enough demographics to say who "people" were. Deliberately a mix of question
-types — `multiple_choice`, `scale` and `text` are all supported end to end by
-`src/features/surveys/survey-runner.tsx` and `survey-results.tsx`, so this is
-seed data and copy, not new UI.
-
-Wider than it looks:
-
-- `src/lib/data/seed.ts` **and** `supabase/seed.sql` — both mirrors, as always.
-- **A migration.** `seed.sql` only runs on a fresh or reset database, so a seed
-  edit alone leaves dev and prod without the survey. Same lesson as the duration
-  column drop.
-
-Two things to decide before writing the questions:
-
-- **Free text is barely aggregated.** `aggregateSurvey` keeps
-  `.slice(-5).reverse()` — the five most recent answers — and then reports
-  `total: textSamples.length`, so a text question with four hundred responses
-  displays a total of 5. That is fine for a pull-quote and useless for ranking
-  suggested topics or summarising an open-ended demographic. If free text needs
-  to be countable, that is aggregation work in `src/lib/data/aggregate.ts`, not
-  something the seed can fix.
-- **Demographics versus the anonymity promise.** `src/routes/about.tsx` states
-  "Nothing requires an account; participation is anonymous". Demographic
-  questions should not quietly erode that: `required` is opt-in per question, so
-  leave them optional, and give choice questions a "prefer not to say" option.
-  Enough narrow demographics combined can identify someone even without a name.
-
-Sequencing: item 1 retires the placeholder survey `srv_tech_habits`. Land this
-one first, or the surveys index is empty in between.
----
-
 ## Pending database changes
 
-Schema work on this branch has **not** been applied to any environment yet.
-`supabase db push` is a separate step from the deploy — migrations do not travel
-with the app.
+**Dev is fully applied** — all eight migrations, confirmed 2026-08-15 with
+`pnpm supabase migration list --linked` against the dev project. Local, staging
+and previews all share that database, so nothing is outstanding there. Re-run
+that command rather than trusting this paragraph; `supabase db push` is a
+separate step from the deploy, and migrations do not travel with the app.
 
-Unapplied migration:
+**Production is still at the init migration.** `main` carries only
+`20260810000000_init`, so seven are unapplied to prod, oldest first:
 
-- `supabase/migrations/20260814000000_matchup_durations.sql` — drops
-  `experiment_variants.base_duration_ms` and `.jitter_ms`. Durations moved to
-  the matchup (`rollMatchupDurations` in `src/lib/data/aggregate.ts`), so
-  nothing reads them any more.
+- `20260811000000_pairwise_matches`
+- `20260811010000_real_loading_indicators`
+- `20260814000000_matchup_durations`
+- `20260815000000_video_ideas`
+- `20260815010000_retire_placeholder_content`
+- `20260815020000_idempotent_idea_votes`
+- `20260815030000_fix_ambiguous_idea_id`
 
-**Order matters, and getting it wrong breaks production.** The migration drops
-columns the _currently deployed_ Supabase adapter still names in its `select`.
+(Inferred from `main`'s history, not measured. Checking for real means linking
+to prod, and a working copy left pointed there turns the next routine
+`db push` into a production write — so it is deliberately not done in passing.)
+
+**Order matters, and getting it wrong breaks production.**
+`20260814000000` drops `experiment_variants.base_duration_ms` and `.jitter_ms`,
+columns the _currently deployed production_ adapter still names in its `select`.
 Push it before the new code is live and every experiment page 500s on a request
-for columns that no longer exist. So, per environment:
+for columns that no longer exist. So:
 
-1. Deploy the code that stops selecting those columns.
-2. Only then `supabase db push`.
+1. Merge `dev` → `main` and let the production deploy finish.
+2. Only then `supabase link --project-ref pjcltrrixmuitgykhzbb && supabase db push`.
 
-Reversed, the outage lasts until the deploy catches up.
+Reversed, the outage lasts until the deploy catches up. Dev went in that order
+and came through clean.
 
-For dev/staging this is one link + push against the dev project; local and all
-previews share that database, so it also unblocks anyone reviewing the branch.
-For production it is the `dev` → `main` PR **first**, then
-`supabase link --project-ref pjcltrrixmuitgykhzbb && supabase db push`.
+Then link back, or the next push meant for dev lands on prod:
+`supabase link --project-ref bydjoacdofhzfroegfmc`.
 
-`supabase/seed.sql` was updated to match, but note it only runs on a fresh or
-reset database — it will not retire the columns on an environment that already
-has them. That is exactly why the migration exists.
+`supabase/seed.sql` only runs on a fresh or reset database — it will not retire
+the columns, or seed anything, on an environment that already exists. That is
+exactly why the migrations exist.
 
 ---
 
