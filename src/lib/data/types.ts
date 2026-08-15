@@ -202,3 +202,36 @@ export interface EloAggregate {
   /** Sorted by rating, highest first. */
   ratings: EloRating[]
 }
+
+// ---------------------------------------------------------------------------
+// Video ideas
+// ---------------------------------------------------------------------------
+
+export interface VideoIdea {
+  id: string
+  title: string
+  description: string
+  voteCount: number
+  /** Whether the visitor passed to `listVideoIdeas` has upvoted this. */
+  votedByVisitor: boolean
+  createdAt: string
+}
+
+/**
+ * Deliberately carries no `visitorId`.
+ *
+ * An idea is public and must never be traceable to whoever wrote it, and the
+ * cheapest way to guarantee that is to give the adapters nothing to write. This
+ * is the anonymity promise expressed as a type rather than as a comment.
+ */
+export interface VideoIdeaInput {
+  title: string
+  description: string
+}
+
+/** What a toggle returns, so the caller can reconcile its optimistic update. */
+export interface IdeaVoteResult {
+  ideaId: string
+  voteCount: number
+  voted: boolean
+}

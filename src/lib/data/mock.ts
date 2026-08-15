@@ -24,11 +24,27 @@ import type {
   Survey,
   SurveySummary,
 } from '@/lib/data/types'
-import { hashString } from '@/lib/visitor'
+import { normalizeIdea } from '@/lib/data/ideas'
+import { createId, hashString } from '@/lib/visitor'
 
 const RESPONSES_KEY = 'za.mock.surveyResponses'
 const INTERACTIONS_KEY = 'za.mock.interactions'
 const MATCHES_KEY = 'za.mock.matches'
+const IDEAS_KEY = 'za.mock.videoIdeas'
+const IDEA_VOTES_KEY = 'za.mock.ideaVotes'
+
+/** Stored exactly as the domain type minus the derived vote fields. */
+interface StoredIdea {
+  id: string
+  title: string
+  description: string
+  createdAt: string
+}
+/** One row per (idea, visitor), mirroring the table's composite primary key. */
+interface StoredIdeaVote {
+  ideaId: string
+  visitorId: string
+}
 
 /** Stored match rows carry ordering metadata the domain type doesn't need. */
 type StoredMatch = MatchInput & { createdAt: string; seq: number }
@@ -63,17 +79,15 @@ function subscribe(key: string, fn: Listener): Unsubscribe {
 // --- Synthetic baseline so first-time visitors see a populated chart --------
 // Expressed as counts, then expanded into single-answer synthetic responses so
 // the shared aggregator treats them exactly like real data.
-const baselineChoice: Record<string, Record<string, number>> = {
-  q_notifications: { calm: 14, neutral: 9, anxious: 22, overwhelmed: 7 },
-  q_friction: { cookie: 31, unsub: 18, cancel: 12, popup: 24, password: 20 },
-}
-const baselineScale: Record<string, Record<number, number>> = {
-  q_ease: { 1: 6, 2: 13, 3: 20, 4: 9, 5: 4 },
-}
-const baselineExperiment: Record<string, Record<number, number>> = {
-  solid: { 1: 1, 2: 2, 3: 6, 4: 15, 5: 21 },
-  flat: { 1: 9, 2: 14, 3: 11, 4: 4, 5: 2 },
-}
+//
+// Empty rather than deleted. The entries here were keyed to the placeholder
+// survey and rating experiment that have been retired, but the mechanism is
+// still what stops a brand-new survey's results page reading as a blank chart —
+// add a row keyed by question or variant id when there is content to seed.
+// (The pairwise baseline below is separate and still very much in use.)
+const baselineChoice: Record<string, Record<string, number>> = {}
+const baselineScale: Record<string, Record<number, number>> = {}
+const baselineExperiment: Record<string, Record<number, number>> = {}
 
 function baselineSurveyResponses(survey: Survey) {
   const rows: {
@@ -296,6 +310,75 @@ export function createMockProvider(): DataProvider {
 
     subscribeToEloAggregate(_experimentId, onChange) {
       return subscribe(MATCHES_KEY, onChange)
+    },
+
+    async listVideoIdeas(visitorId) {
+      const ideas = readArray<StoredIdea>(IDEAS_KEY)
+      const votes = readArray<StoredIdeaVote>(IDEA_VOTES_KEY)
+
+      // One pass over the votes rather than a filter per idea, matching the
+      // single indexed scan the SQL function does.
+      const counts = new Map<string, number>()
+      const mine = new Set<string>()
+      for (const v of votes) {
+        counts.set(v.ideaId, (counts.get(v.ideaId) ?? 0) + 1)
+        if (v.visitorId === visitorId) mine.add(v.ideaId)
+      }
+
+      return ideas
+        .map((i) => ({
+          ...i,
+          voteCount: counts.get(i.id) ?? 0,
+          votedByVisitor: mine.has(i.id),
+        }))
+        .sort(
+          (a, b) =>
+            b.voteCount - a.voteCount ||
+            b.createdAt.localeCompare(a.createdAt) ||
+            a.id.localeCompare(b.id),
+        )
+    },
+
+    async createVideoIdea(input) {
+      // Normalised here, not trusted from the form: the same guard the Postgres
+      // check constraints apply, so the two backends reject the same things.
+      const { title, description } = normalizeIdea(input)
+      const row: StoredIdea = {
+        id: createId(),
+        title,
+        description,
+        createdAt: new Date().toISOString(),
+      }
+      writeArray(IDEAS_KEY, [...readArray<StoredIdea>(IDEAS_KEY), row])
+      return { ...row, voteCount: 0, votedByVisitor: false }
+    },
+
+    async toggleIdeaVote(ideaId, visitorId) {
+      const votes = readArray<StoredIdeaVote>(IDEA_VOTES_KEY)
+      const without = votes.filter(
+        (v) => !(v.ideaId === ideaId && v.visitorId === visitorId),
+      )
+      const voted = without.length === votes.length
+      writeArray(
+        IDEA_VOTES_KEY,
+        voted ? [...without, { ideaId, visitorId }] : without,
+      )
+      // Recounted rather than tracked, mirroring the SQL function — the count
+      // can never disagree with the rows it is derived from.
+      const voteCount = (
+        voted ? [...without, { ideaId, visitorId }] : without
+      ).filter((v) => v.ideaId === ideaId).length
+      return { ideaId, voteCount, voted }
+    },
+
+    subscribeToVideoIdeas(onChange) {
+      // Both keys: posting writes ideas, voting writes votes, and the list
+      // renders from both.
+      const unsubs = [
+        subscribe(IDEAS_KEY, onChange),
+        subscribe(IDEA_VOTES_KEY, onChange),
+      ]
+      return () => unsubs.forEach((u) => u())
     },
   }
 }

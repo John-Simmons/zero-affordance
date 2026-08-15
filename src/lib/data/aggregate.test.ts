@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  aggregateExperiment,
+  aggregateSurvey,
   BASE_DURATION_MAX_MS,
   BASE_DURATION_MIN_MS,
   computeElo,
@@ -10,7 +12,13 @@ import {
   scoreAccuracy,
   START_RATING,
 } from '@/lib/data/aggregate'
-import type { Experiment, MatchInput } from '@/lib/data/types'
+import type {
+  Experiment,
+  InteractionInput,
+  MatchInput,
+  Survey,
+  SurveyResponseInput,
+} from '@/lib/data/types'
 
 const experiment: Experiment = {
   id: 'exp_test',
@@ -404,5 +412,133 @@ describe('rollMatchupDurations', () => {
     const high = rollMatchupDurations(seq([0.999999, 0.5, 0.5]))
     expect(low.durationAMs).toBe(BASE_DURATION_MIN_MS)
     expect(high.durationAMs).toBe(BASE_DURATION_MAX_MS)
+  })
+})
+
+/*
+  Direct coverage for the two aggregators that used to be exercised only
+  indirectly, through the mock provider's seeded placeholder content. That
+  content has been retired, so without these the survey path and the dormant
+  rating path would have no tests at all — and dormant plus untested is how
+  code rots.
+
+  Fixtures are local, so this can never be broken again by a seed edit.
+*/
+
+const survey: Survey = {
+  id: 'srv_x',
+  slug: 'x',
+  title: 'X',
+  description: '',
+  questions: [
+    {
+      id: 'q_pick',
+      prompt: 'Pick one',
+      type: 'single_choice',
+      options: [
+        { id: 'a', label: 'A' },
+        { id: 'b', label: 'B' },
+      ],
+    },
+    { id: 'q_scale', prompt: 'Rate', type: 'scale', min: 1, max: 5 },
+    { id: 'q_text', prompt: 'Say', type: 'text' },
+  ],
+}
+
+function response(
+  answers: SurveyResponseInput['answers'],
+): SurveyResponseInput {
+  return { surveyId: 'srv_x', visitorId: 'v', answers }
+}
+
+describe('aggregateSurvey', () => {
+  it('counts choices and averages scales', () => {
+    const agg = aggregateSurvey(survey, [
+      response({ q_pick: 'a', q_scale: 4 }),
+      response({ q_pick: 'a', q_scale: 2 }),
+      response({ q_pick: 'b' }),
+    ])
+    expect(agg.totalResponses).toBe(3)
+
+    const pick = agg.questions.find((q) => q.questionId === 'q_pick')!
+    expect(pick.optionCounts).toEqual({ a: 2, b: 1 })
+
+    const scale = agg.questions.find((q) => q.questionId === 'q_scale')!
+    expect(scale.total).toBe(2)
+    expect(scale.scaleAverage).toBe(3)
+  })
+
+  it('reports every declared option, including unpicked ones', () => {
+    // The results chart maps over declared options, so a zero has to exist
+    // rather than be absent.
+    const agg = aggregateSurvey(survey, [response({ q_pick: 'a' })])
+    const pick = agg.questions.find((q) => q.questionId === 'q_pick')!
+    expect(pick.optionCounts).toEqual({ a: 1, b: 0 })
+  })
+
+  it('keeps only the five most recent text answers, newest first', () => {
+    // A documented limitation, pinned so nobody builds a feature on the
+    // assumption that text answers are countable.
+    const agg = aggregateSurvey(
+      survey,
+      ['one', 'two', 'three', 'four', 'five', 'six'].map((t) =>
+        response({ q_text: t }),
+      ),
+    )
+    const text = agg.questions.find((q) => q.questionId === 'q_text')!
+    expect(text.textSamples).toEqual(['six', 'five', 'four', 'three', 'two'])
+    expect(text.total).toBe(5)
+  })
+
+  it('ignores blank text answers', () => {
+    const agg = aggregateSurvey(survey, [
+      response({ q_text: '   ' }),
+      response({ q_text: 'real' }),
+    ])
+    const text = agg.questions.find((q) => q.questionId === 'q_text')!
+    expect(text.textSamples).toEqual(['real'])
+  })
+})
+
+const rating: Experiment = {
+  id: 'exp_x',
+  slug: 'x',
+  title: 'X',
+  description: '',
+  hypothesis: '',
+  kind: 'rating',
+  metricLabel: '',
+  metricMin: 1,
+  metricMax: 5,
+  variants: [
+    { id: 'solid', label: 'Solid', description: '' },
+    { id: 'flat', label: 'Flat', description: '' },
+  ],
+}
+
+function interaction(variantId: string, value: number): InteractionInput {
+  return { experimentId: 'exp_x', variantId, visitorId: 'v', value }
+}
+
+describe('aggregateExperiment', () => {
+  it('averages per variant and totals across them', () => {
+    const agg = aggregateExperiment(rating, [
+      interaction('solid', 5),
+      interaction('solid', 3),
+      interaction('flat', 2),
+    ])
+    expect(agg.totalInteractions).toBe(3)
+
+    const solid = agg.variants.find((v) => v.variantId === 'solid')!
+    expect(solid.count).toBe(2)
+    expect(solid.average).toBe(4)
+    expect(solid.distribution).toEqual({ 5: 1, 3: 1 })
+  })
+
+  it('reports a variant nobody rated as zero, not absent', () => {
+    const agg = aggregateExperiment(rating, [interaction('solid', 4)])
+    const flat = agg.variants.find((v) => v.variantId === 'flat')!
+    expect(flat.count).toBe(0)
+    expect(flat.average).toBe(0)
   })
 })

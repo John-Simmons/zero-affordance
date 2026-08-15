@@ -17,9 +17,11 @@ import {
   aggregateSurvey,
   computeElo,
 } from '@/lib/data/aggregate'
+import { normalizeIdea } from '@/lib/data/ideas'
 import type { DataProvider, Unsubscribe } from '@/lib/data/provider'
 import type {
   AnswerValue,
+  IdeaVoteResult,
   Experiment,
   ExperimentKind,
   ExperimentVariant,
@@ -29,6 +31,8 @@ import type {
   Survey,
   SurveyQuestion,
   SurveyResponseInput,
+  VideoIdea,
+  VideoIdeaInput,
 } from '@/lib/data/types'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { hashString } from '@/lib/visitor'
@@ -66,6 +70,15 @@ interface VariantRow {
   id: string
   label: string
   description: string
+}
+/** Shape returned by the list_video_ideas() function, not by a table select. */
+interface VideoIdeaRow {
+  id: string
+  title: string
+  description: string
+  vote_count: number
+  voted: boolean
+  created_at: string
 }
 interface MatchRow {
   variant_a_id: string
@@ -347,6 +360,88 @@ export function createSupabaseProvider(
             schema: 'public',
             table: 'experiment_matches',
             filter: `experiment_id=eq.${experimentId}`,
+          },
+          () => onChange(),
+        )
+        .subscribe()
+      return () => {
+        void client.removeChannel(channel)
+      }
+    },
+
+    async listVideoIdeas(visitorId: string): Promise<VideoIdea[]> {
+      // An RPC rather than a table select: idea_votes is unreadable by anon on
+      // purpose (it holds visitor ids), so the count and the "did I vote" flag
+      // have to come from a security-definer function. One round trip, no N+1.
+      const { data, error } = await client.rpc('list_video_ideas', {
+        p_visitor_id: visitorId,
+      })
+      if (error) throw error
+      // Cast rather than `.returns<>()`: without generated database types the
+      // client cannot tell a set-returning function from a scalar one.
+      const rows = (data ?? []) as VideoIdeaRow[]
+      return rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        description: r.description,
+        voteCount: r.vote_count,
+        votedByVisitor: r.voted,
+        createdAt: r.created_at,
+      }))
+    },
+
+    async createVideoIdea(input: VideoIdeaInput): Promise<VideoIdea> {
+      // Same guard the mock applies and the check constraints enforce, so a bad
+      // row fails identically on both backends instead of only at the database.
+      const { title, description } = normalizeIdea(input)
+      const { data, error } = await client
+        .from('video_ideas')
+        .insert({ title, description })
+        .select('id, title, description, vote_count, created_at')
+        .single<Omit<VideoIdeaRow, 'voted'>>()
+      if (error) throw error
+      return {
+        id: data.id,
+        title: data.title,
+        description: data.description,
+        voteCount: data.vote_count,
+        votedByVisitor: false,
+        createdAt: data.created_at,
+      }
+    },
+
+    async toggleIdeaVote(
+      ideaId: string,
+      visitorId: string,
+    ): Promise<IdeaVoteResult> {
+      const { data, error } = await client.rpc('toggle_idea_vote', {
+        p_idea_id: ideaId,
+        p_visitor_id: visitorId,
+      })
+      if (error) throw error
+      const row = (
+        data as { idea_id: string; vote_count: number; voted: boolean }[] | null
+      )?.[0]
+      if (!row) throw new Error('toggle_idea_vote returned no row')
+      return {
+        ideaId: row.idea_id,
+        voteCount: row.vote_count,
+        voted: row.voted,
+      }
+    },
+
+    subscribeToVideoIdeas(onChange): Unsubscribe {
+      const channel = client
+        .channel('video_ideas')
+        .on(
+          'postgres_changes',
+          {
+            // '*', not INSERT. Unlike every other subscription here the rows are
+            // not append-only: a vote updates vote_count, and moderation from
+            // the dashboard deletes.
+            event: '*',
+            schema: 'public',
+            table: 'video_ideas',
           },
           () => onChange(),
         )

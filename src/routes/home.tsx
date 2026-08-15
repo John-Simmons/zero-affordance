@@ -33,21 +33,27 @@ export function HomePage() {
         </Container>
       </section>
 
+      {/*
+        Both cards lead to the one catalogue now. They stay because they do
+        editorial work the catalogue does not — explaining what a survey is
+        versus an experiment — and pointing them at the old paths would mean
+        the homepage relied on the site's own redirects.
+      */}
       <Container className="grid gap-6 py-16 md:grid-cols-2">
         <SectionCard
           icon={<ListChecks className="size-5" />}
           title="Surveys"
           description="Quick self-reports whose results update live as the community responds."
-          href="/surveys"
-          cta="Browse surveys"
+          href="/studies"
+          cta="Browse studies"
           count={surveys.data?.length}
         />
         <SectionCard
           icon={<FlaskConical className="size-5" />}
           title="Experiments"
           description="Interactive A/B-style studies on how design shapes perception and behavior."
-          href="/experiments"
-          cta="Browse experiments"
+          href="/studies"
+          cta="Browse studies"
           count={experiments.data?.length}
         />
       </Container>

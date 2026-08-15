@@ -10,6 +10,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { getDataProvider } from '@/lib/data'
 import type {
+  VideoIdea,
+  VideoIdeaInput,
   InteractionInput,
   MatchInput,
   SurveyResponseInput,
@@ -28,6 +30,9 @@ export const queryKeys = {
     ['experiment-aggregate', experimentId] as const,
   eloAggregate: (experimentId: string) =>
     ['elo-aggregate', experimentId] as const,
+  // Keyed by visitor because `votedByVisitor` is part of the payload — two
+  // browsers must not share a cache entry.
+  videoIdeas: (visitorId: string) => ['video-ideas', visitorId] as const,
 }
 
 // --- Surveys ---------------------------------------------------------------
@@ -180,6 +185,90 @@ export function useRecordMatch() {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.eloAggregate(input.experimentId),
       })
+    },
+  })
+}
+
+export function useVideoIdeas(visitorId: string) {
+  const queryClient = useQueryClient()
+  const query = useQuery({
+    queryKey: queryKeys.videoIdeas(visitorId),
+    queryFn: () => getDataProvider().listVideoIdeas(visitorId),
+  })
+
+  // Best-effort realtime: refetch when the backend signals a change.
+  useEffect(() => {
+    const unsub = getDataProvider().subscribeToVideoIdeas?.(() => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.videoIdeas(visitorId),
+      })
+    })
+    return unsub
+  }, [visitorId, queryClient])
+
+  return query
+}
+
+export function useCreateVideoIdea(visitorId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: VideoIdeaInput) =>
+      getDataProvider().createVideoIdea(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.videoIdeas(visitorId),
+      })
+    },
+  })
+}
+
+/**
+ * Optimistic, because a vote is a tap on a counter and waiting a round trip to
+ * see it move feels broken. Rolled back on error and reconciled from the
+ * server's own count on success, so a failed or raced toggle cannot leave the
+ * list showing a number the backend disagrees with.
+ */
+export function useToggleIdeaVote(visitorId: string) {
+  const queryClient = useQueryClient()
+  const key = queryKeys.videoIdeas(visitorId)
+
+  return useMutation({
+    mutationFn: (ideaId: string) =>
+      getDataProvider().toggleIdeaVote(ideaId, visitorId),
+
+    onMutate: async (ideaId) => {
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<VideoIdea[]>(key)
+      queryClient.setQueryData<VideoIdea[]>(key, (old) =>
+        old?.map((i) =>
+          i.id === ideaId
+            ? {
+                ...i,
+                votedByVisitor: !i.votedByVisitor,
+                voteCount: i.voteCount + (i.votedByVisitor ? -1 : 1),
+              }
+            : i,
+        ),
+      )
+      return { previous }
+    },
+
+    onError: (_err, _ideaId, context) => {
+      if (context?.previous) queryClient.setQueryData(key, context.previous)
+    },
+
+    onSuccess: (result) => {
+      queryClient.setQueryData<VideoIdea[]>(key, (old) =>
+        old?.map((i) =>
+          i.id === result.ideaId
+            ? {
+                ...i,
+                voteCount: result.voteCount,
+                votedByVisitor: result.voted,
+              }
+            : i,
+        ),
+      )
     },
   })
 }

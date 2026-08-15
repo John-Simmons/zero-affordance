@@ -15,8 +15,8 @@ export const siteConfig = {
   youtubeUrl: 'https://www.youtube.com/@johnsim',
   nav: [
     { title: 'Home', href: '/' },
-    { title: 'Surveys', href: '/surveys' },
-    { title: 'Experiments', href: '/experiments' },
+    { title: 'Studies', href: '/studies' },
+    { title: 'Ideas', href: '/ideas' },
     { title: 'About', href: '/about' },
   ] satisfies NavItem[],
 } as const

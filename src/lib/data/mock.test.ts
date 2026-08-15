@@ -7,61 +7,19 @@ describe('mock data provider', () => {
     localStorage.clear()
   })
 
-  it('lists and loads the seeded survey', async () => {
+  it('seeds no surveys, but still serves the survey path', async () => {
+    // The placeholder survey was retired; the machinery behind it was not.
+    // An empty list is a content state, not a broken one.
     const provider = createMockProvider()
-    const summaries = await provider.listSurveys()
-    expect(summaries.length).toBeGreaterThan(0)
-
-    const survey = await provider.getSurvey('technology-habits')
-    expect(survey).not.toBeNull()
-    expect(survey?.questions.length).toBeGreaterThan(0)
+    expect(await provider.listSurveys()).toEqual([])
+    expect(await provider.getSurvey('technology-habits')).toBeNull()
   })
 
-  it('records a survey response and reflects it in the aggregate', async () => {
+  it('seeds only the pairwise experiment', async () => {
     const provider = createMockProvider()
-    const before = await provider.getSurveyAggregate('srv_tech_habits')
-    const q = before.questions.find((x) => x.questionId === 'q_notifications')!
-    const beforeCalm = q.optionCounts?.calm ?? 0
-
-    await provider.submitSurveyResponse({
-      surveyId: 'srv_tech_habits',
-      visitorId: 'test-visitor',
-      answers: { q_notifications: 'calm', q_ease: 5 },
-    })
-
-    const after = await provider.getSurveyAggregate('srv_tech_habits')
-    const qAfter = after.questions.find(
-      (x) => x.questionId === 'q_notifications',
-    )!
-    expect(qAfter.optionCounts?.calm).toBe(beforeCalm + 1)
-  })
-
-  it('assigns a stable variant for a given visitor', async () => {
-    const provider = createMockProvider()
-    const a = await provider.assignVariant('exp_button_affordance', 'visitor-1')
-    const b = await provider.assignVariant('exp_button_affordance', 'visitor-1')
-    expect(a.id).toBe(b.id)
-  })
-
-  it('records an interaction and updates the experiment aggregate', async () => {
-    const provider = createMockProvider()
-    const before = await provider.getExperimentAggregate(
-      'exp_button_affordance',
-    )
-    const solidBefore =
-      before.variants.find((v) => v.variantId === 'solid')?.count ?? 0
-
-    await provider.recordInteraction({
-      experimentId: 'exp_button_affordance',
-      variantId: 'solid',
-      visitorId: 'test-visitor',
-      value: 4,
-    })
-
-    const after = await provider.getExperimentAggregate('exp_button_affordance')
-    const solidAfter =
-      after.variants.find((v) => v.variantId === 'solid')?.count ?? 0
-    expect(solidAfter).toBe(solidBefore + 1)
+    const summaries = await provider.listExperiments()
+    expect(summaries.map((e) => e.slug)).toEqual(['loading-perception'])
+    expect(await provider.getExperiment('button-affordance')).toBeNull()
   })
 
   it('loads the pairwise experiment with identity-only variants', async () => {
@@ -122,5 +80,127 @@ describe('mock data provider', () => {
     for (const id of ['progress_bar', 'skeleton', 'baking', 'quote']) {
       expect(ratingBefore(after, id)).toBeCloseTo(ratingBefore(before, id), 9)
     }
+  })
+
+  describe('video ideas', () => {
+    const VISITOR = 'visitor-a'
+
+    it('lists a created idea with no votes', async () => {
+      const provider = createMockProvider()
+      await provider.createVideoIdea({
+        title: 'Why dark patterns work',
+        description: 'A teardown of consent flows.',
+      })
+
+      const ideas = await provider.listVideoIdeas(VISITOR)
+      expect(ideas).toHaveLength(1)
+      expect(ideas[0].voteCount).toBe(0)
+      expect(ideas[0].votedByVisitor).toBe(false)
+    })
+
+    it('toggles a vote on and back off', async () => {
+      // The contract the Postgres function has to match. This is the one place
+      // the two adapters could silently drift, so it is pinned on both sides.
+      const provider = createMockProvider()
+      const idea = await provider.createVideoIdea({
+        title: 'Undo',
+        description: 'The psychology of undo.',
+      })
+
+      const on = await provider.toggleIdeaVote(idea.id, VISITOR)
+      expect(on).toEqual({ ideaId: idea.id, voteCount: 1, voted: true })
+
+      const off = await provider.toggleIdeaVote(idea.id, VISITOR)
+      expect(off).toEqual({ ideaId: idea.id, voteCount: 0, voted: false })
+    })
+
+    it('counts one vote per visitor, not per click', async () => {
+      const provider = createMockProvider()
+      const idea = await provider.createVideoIdea({
+        title: 'Forms',
+        description: 'Why forms feel slow.',
+      })
+
+      await provider.toggleIdeaVote(idea.id, VISITOR)
+      await provider.toggleIdeaVote(idea.id, 'visitor-b')
+      expect((await provider.listVideoIdeas(VISITOR))[0].voteCount).toBe(2)
+
+      // Same visitor again just removes their own vote — it can never add a
+      // second one.
+      await provider.toggleIdeaVote(idea.id, 'visitor-b')
+      await provider.toggleIdeaVote(idea.id, 'visitor-b')
+      expect((await provider.listVideoIdeas(VISITOR))[0].voteCount).toBe(2)
+    })
+
+    it('reports votedByVisitor only for the asking visitor', async () => {
+      const provider = createMockProvider()
+      const idea = await provider.createVideoIdea({
+        title: 'Loading',
+        description: 'Perceived duration.',
+      })
+      await provider.toggleIdeaVote(idea.id, VISITOR)
+
+      expect((await provider.listVideoIdeas(VISITOR))[0].votedByVisitor).toBe(
+        true,
+      )
+      expect(
+        (await provider.listVideoIdeas('visitor-b'))[0].votedByVisitor,
+      ).toBe(false)
+    })
+
+    it('stores no visitor id on an idea row', async () => {
+      // The anonymity promise, asserted rather than commented: an idea is
+      // public, so nothing on the row may lead back to whoever wrote it.
+      const provider = createMockProvider()
+      await provider.createVideoIdea({
+        title: 'Anonymous',
+        description: 'Should not be attributable.',
+      })
+      await provider.toggleIdeaVote(
+        (await provider.listVideoIdeas(VISITOR))[0].id,
+        VISITOR,
+      )
+
+      const raw = localStorage.getItem('za.mock.videoIdeas') ?? ''
+      expect(raw).not.toContain(VISITOR)
+    })
+
+    it('sorts by votes, then newest', async () => {
+      const provider = createMockProvider()
+      const quiet = await provider.createVideoIdea({
+        title: 'Quiet',
+        description: 'No votes.',
+      })
+      const popular = await provider.createVideoIdea({
+        title: 'Popular',
+        description: 'One vote.',
+      })
+      await provider.toggleIdeaVote(popular.id, VISITOR)
+
+      const ideas = await provider.listVideoIdeas(VISITOR)
+      expect(ideas.map((i) => i.id)).toEqual([popular.id, quiet.id])
+    })
+
+    it('rejects blank and over-length text', async () => {
+      const provider = createMockProvider()
+      await expect(
+        provider.createVideoIdea({ title: '   ', description: 'ok' }),
+      ).rejects.toThrow()
+      await expect(
+        provider.createVideoIdea({ title: 'ok', description: '' }),
+      ).rejects.toThrow()
+      await expect(
+        provider.createVideoIdea({
+          title: 'x'.repeat(81),
+          description: 'ok',
+        }),
+      ).rejects.toThrow()
+      await expect(
+        provider.createVideoIdea({
+          title: 'ok',
+          description: 'x'.repeat(501),
+        }),
+      ).rejects.toThrow()
+    })
   })
 })

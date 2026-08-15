@@ -67,7 +67,7 @@ describe('SiteHeader', () => {
     const user = userEvent.setup()
     render(
       <ThemeProvider>
-        <MemoryRouter initialEntries={['/surveys']}>
+        <MemoryRouter initialEntries={['/studies']}>
           <SiteHeader />
         </MemoryRouter>
       </ThemeProvider>,
@@ -75,7 +75,7 @@ describe('SiteHeader', () => {
     await user.click(screen.getByRole('button', { name: /open menu/i }))
     const panel = within(await screen.findByRole('dialog'))
 
-    expect(panel.getByRole('link', { name: 'Surveys' })).toHaveAttribute(
+    expect(panel.getByRole('link', { name: 'Studies' })).toHaveAttribute(
       'aria-current',
       'page',
     )

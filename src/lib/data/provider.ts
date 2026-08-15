@@ -14,10 +14,13 @@ import type {
   ExperimentVariant,
   InteractionInput,
   MatchInput,
+  IdeaVoteResult,
   Survey,
   SurveyAggregate,
   SurveyResponseInput,
   SurveySummary,
+  VideoIdea,
+  VideoIdeaInput,
 } from '@/lib/data/types'
 
 /** Called when an aggregate changes (realtime). Returns an unsubscribe fn. */
@@ -47,6 +50,14 @@ export interface DataProvider {
   /** Derive current Elo ratings by replaying every recorded match. */
   getEloAggregate(experimentId: string): Promise<EloAggregate>
 
+  // Video ideas
+  /** Ordered by votes, then newest. `visitorId` only resolves `votedByVisitor`. */
+  listVideoIdeas(visitorId: string): Promise<VideoIdea[]>
+  /** Validates and trims via `normalizeIdea`; throws on anything out of bounds. */
+  createVideoIdea(input: VideoIdeaInput): Promise<VideoIdea>
+  /** Adds or removes this visitor's single vote, and reports the new state. */
+  toggleIdeaVote(ideaId: string, visitorId: string): Promise<IdeaVoteResult>
+
   /**
    * Optional realtime hook. Adapters that cannot stream may omit it; callers
    * must treat it as best-effort and fall back to refetching.
@@ -63,4 +74,6 @@ export interface DataProvider {
     experimentId: string,
     onChange: () => void,
   ): Unsubscribe
+  /** Fires for new ideas, vote changes, and moderation removals alike. */
+  subscribeToVideoIdeas?(onChange: () => void): Unsubscribe
 }

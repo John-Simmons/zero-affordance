@@ -9,7 +9,13 @@
 
 const STORAGE_KEY = 'za.visitorId'
 
-function createId(): string {
+/**
+ * Exported because the mock adapter needs ids for rows other things reference
+ * (a vote points at an idea), and `crypto.randomUUID` is **undefined outside a
+ * secure context** — including a dev server reached over a LAN IP on http.
+ * This is the one place that fallback already lives.
+ */
+export function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID()
   }
