@@ -56,9 +56,9 @@ export const seedExperiments: Experiment[] = [
       },
       {
         id: 'baking',
-        label: 'Baking a loaf',
+        label: 'Cooking a meal',
         description:
-          'An illustrated bake: dough rises, the oven warms, steam lifts off the loaf.',
+          'An illustrated cook in three acts: pour, stir, then bake.',
       },
       {
         id: 'quote',

@@ -37,7 +37,7 @@ values
   ('classic_spinner', 'exp_loading_perception', 'Classic spinner', 'A rotating arc. Signals activity, promises nothing.', 0),
   ('progress_bar',    'exp_loading_perception', 'Progress bar', 'A determinate bar filling from empty to full.', 1),
   ('skeleton',        'exp_loading_perception', 'Skeleton', 'Shimmering placeholders shaped like the content that is coming.', 2),
-  ('baking',          'exp_loading_perception', 'Baking a loaf', 'An illustrated bake: dough rises, the oven warms, steam lifts off the loaf.', 3),
+  ('baking',          'exp_loading_perception', 'Cooking a meal', 'An illustrated cook in three acts: pour, stir, then bake.', 3),
   ('quote',           'exp_loading_perception', 'Quote', 'Something to read, with an animated ellipsis.', 4),
   ('blank',           'exp_loading_perception', 'Blank screen', 'Nothing at all — the control condition.', 5)
 on conflict (experiment_id, id) do nothing;

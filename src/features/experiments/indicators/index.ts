@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
 
-import { BakingIndicator } from '@/features/experiments/indicators/baking-indicator'
 import { BlankIndicator } from '@/features/experiments/indicators/blank-indicator'
 import { ClassicSpinner } from '@/features/experiments/indicators/classic-spinner'
+import { CookingIndicator } from '@/features/experiments/indicators/cooking-indicator'
 import { ProgressBarIndicator } from '@/features/experiments/indicators/progress-bar'
 import { QuoteIndicator } from '@/features/experiments/indicators/quote-indicator'
 import { SkeletonLoader } from '@/features/experiments/indicators/skeleton-loader'
@@ -52,7 +52,10 @@ export const loadingIndicators: Record<string, LoadingIndicator> = {
   classic_spinner: ClassicSpinner,
   progress_bar: ProgressBarIndicator,
   skeleton: SkeletonLoader,
-  baking: BakingIndicator,
+  // The key and the component disagree on purpose. The bake was redrawn as a
+  // three-act cook, and keeping the id is what keeps its Elo history in the
+  // path — see the note in cooking-indicator.tsx.
+  baking: CookingIndicator,
   quote: QuoteIndicator,
   blank: BlankIndicator,
 }
