@@ -66,7 +66,7 @@ export function HomePage() {
           title="Video Ideas"
           description="Suggest what the channel should cover next, and vote for the topics you want to watch."
           href="/ideas"
-          cta="See the ideas"
+          cta="Browse ideas"
           count={ideas.data?.length}
         />
       </Container>
