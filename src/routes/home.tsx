@@ -41,9 +41,7 @@ export function HomePage() {
           <h1 className="mx-auto max-w-3xl font-heading text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
             {siteConfig.tagline}
           </h1>
-          <p className="mx-auto mt-4 max-w-xl text-lg text-pretty text-muted-foreground">
-            {siteConfig.description}
-          </p>
+          <DefinitionEntry />
         </Container>
       </section>
 
@@ -71,6 +69,48 @@ export function HomePage() {
         />
       </Container>
     </div>
+  )
+}
+
+/**
+ * The term the channel is named after, set as a dictionary entry below the
+ * hero copy. Left-aligned inside the centred hero because that is how an entry
+ * reads on the page of a dictionary.
+ */
+function DefinitionEntry() {
+  const { headword, partOfSpeech, pronunciation, senses } =
+    siteConfig.definition
+
+  return (
+    <dl className="mx-auto mt-8 max-w-xl text-left">
+      <dt className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-heading text-lg font-semibold tracking-tight">
+          {headword}
+        </span>
+        <span className="text-sm text-muted-foreground italic">
+          {partOfSpeech}
+        </span>
+        <span className="text-sm text-muted-foreground">{pronunciation}</span>
+      </dt>
+      {senses.map(({ sense, example, attribution }, index) => (
+        <dd
+          key={sense}
+          className="mt-2 flex gap-2 text-pretty text-muted-foreground"
+        >
+          <span aria-hidden className="tabular-nums">
+            {index + 1}.
+          </span>
+          <span>
+            {sense}
+            {example && (
+              <span className="mt-1 block text-muted-foreground/80 italic">
+                “{example}”{attribution && ` — ${attribution}`}
+              </span>
+            )}
+          </span>
+        </dd>
+      ))}
+    </dl>
   )
 }
 
