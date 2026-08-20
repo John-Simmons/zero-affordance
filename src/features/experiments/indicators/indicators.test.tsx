@@ -78,9 +78,7 @@ describe('loadingIndicators', () => {
     }
   })
 
-  // `quote` is excluded because its ellipsis tracks progress, not because of
-  // anything to do with which line it happens to be showing.
-  it.each(ids.filter((id) => !DETERMINATE.includes(id) && id !== 'quote'))(
+  it.each(ids.filter((id) => !DETERMINATE.includes(id)))(
     '%s is indeterminate — output does not depend on progress',
     (id) => {
       expect(html(id, 0)).toEqual(html(id, 1))
@@ -91,14 +89,28 @@ describe('loadingIndicators', () => {
     expect(html('blank', 0.5)).toBe('')
   })
 
-  it('animates the ellipsis without disturbing the line being read', () => {
-    // Seed held fixed, because within ONE appearance the quote must not move —
-    // otherwise the participant is re-reading rather than reading. Pinning the
-    // quote equal first is what makes the inequality below meaningful: it can
-    // only be the ellipsis, which is the sole thing allowed to change.
+  it('ticks the ellipsis on its own clock, not on the run', () => {
+    // Regression: the dots were `Math.floor(progress * 18) % 4`, which fits a
+    // fixed NUMBER of cycles into the run rather than holding a fixed RATE.
+    // With a 1800-3600ms band that is a 2x speed difference between the
+    // shortest matchup and the longest, so the one signal meant to say nothing
+    // but "still working" was quietly announcing its own duration.
+    //
+    // Seed held fixed throughout: within one appearance the quote must not
+    // move, or the participant is re-reading rather than reading.
     expect(quoteAt(3, 0)).toBe(quoteAt(3, 1))
     const at = (p: number) => html('quote', p, 3)
-    expect(at(0.35)).not.toEqual(at(0.5))
+    expect(at(0.35)).toEqual(at(0.5))
+
+    // Three dots, all on one duration — the rate is a constant in the markup
+    // rather than something computed per run. Asserting the class strings is
+    // deliberate: Tailwind only emits a rule for a utility it can find in the
+    // source, so a name built at runtime would render dots that never move,
+    // and nothing else here would notice.
+    const durations = [...at(0.5).matchAll(/quote-dot-\d_(\d+ms)_/g)].map(
+      (m) => m[1],
+    )
+    expect(durations).toEqual(['600ms', '600ms', '600ms'])
   })
 
   it('shows the same quote for the same seed, on a fresh mount', () => {
