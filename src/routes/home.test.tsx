@@ -21,6 +21,12 @@ describe('HomePage', () => {
     )
 
     expect(screen.getByText(siteConfig.tagline)).toBeInTheDocument()
+    // The hero's supporting copy is a dictionary entry for the term the
+    // channel is named after, so assert on the headword and its sense.
+    expect(screen.getByText(siteConfig.definition.headword)).toBeInTheDocument()
+    for (const { sense } of siteConfig.definition.senses) {
+      expect(screen.getByText(sense)).toBeInTheDocument()
+    }
     // The hero is intentionally CTA-free — navigation lives in the section
     // cards below it, so assert on those links instead. One card per content
     // section of the site: the studies catalogue and the ideas board.
