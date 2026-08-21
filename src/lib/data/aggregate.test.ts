@@ -6,7 +6,9 @@ import {
   BASE_DURATION_MAX_MS,
   BASE_DURATION_MIN_MS,
   computeElo,
+  computeEloHistory,
   DURATION_JITTER_FRACTION,
+  MAX_HISTORY_POINTS,
   rollMatchupDurations,
   roundRobinPairs,
   scoreAccuracy,
@@ -301,6 +303,70 @@ describe('computeElo', () => {
     ])
     expect(agg.totalMatches).toBe(0)
     for (const r of agg.ratings) expect(r.rating).toBe(START_RATING)
+  })
+})
+
+describe('computeEloHistory', () => {
+  /** Enough matches to force sampling: stride must exceed 1. */
+  const many = Array.from({ length: MAX_HISTORY_POINTS * 3 }, (_, i) =>
+    match({ outcome: i % 3 === 0 ? 'b' : 'a' }),
+  )
+
+  it('opens at the origin, with everything on the starting rating', () => {
+    const [first] = computeEloHistory(experiment, many).points
+    expect(first.matchCount).toBe(0)
+    for (const v of experiment.variants) {
+      expect(first.ratings[v.id]).toBe(START_RATING)
+    }
+  })
+
+  it('yields only the origin when there are no matches', () => {
+    const history = computeEloHistory(experiment, [])
+    expect(history.totalMatches).toBe(0)
+    expect(history.points).toHaveLength(1)
+    expect(history.points[0].matchCount).toBe(0)
+  })
+
+  /**
+   * The load-bearing one. The chart and the standings table share a card, so a
+   * final point that disagreed with `computeElo` would put two different answers
+   * to the same question one tab apart.
+   */
+  it('ends exactly where computeElo does', () => {
+    const history = computeEloHistory(experiment, many)
+    const agg = computeElo(experiment, many)
+    const last = history.points[history.points.length - 1]
+
+    expect(last.matchCount).toBe(agg.totalMatches)
+    for (const r of agg.ratings)
+      expect(last.ratings[r.variantId]).toBe(r.rating)
+  })
+
+  it('samples down to the cap however many matches there are', () => {
+    const history = computeEloHistory(experiment, many)
+    expect(history.points.length).toBeGreaterThan(2)
+    expect(history.points.length).toBeLessThanOrEqual(MAX_HISTORY_POINTS)
+    // Sampling must never reorder or repeat the axis.
+    const counts = history.points.map((p) => p.matchCount)
+    expect([...counts].sort((a, b) => a - b)).toEqual(counts)
+    expect(new Set(counts).size).toBe(counts.length)
+  })
+
+  it('keeps every match when there are fewer than the cap', () => {
+    const few = [match(), match({ outcome: 'b' }), match({ outcome: 'tie' })]
+    const history = computeEloHistory(experiment, few)
+    expect(history.points.map((p) => p.matchCount)).toEqual([0, 1, 2, 3])
+  })
+
+  /** Skipped rows must not advance the axis past the total on the table. */
+  it('does not count matches naming variants the experiment dropped', () => {
+    const history = computeEloHistory(experiment, [
+      match(),
+      match({ variantAId: 'x', variantBId: 'gone' }),
+      match({ outcome: 'b' }),
+    ])
+    expect(history.totalMatches).toBe(2)
+    expect(history.points.map((p) => p.matchCount)).toEqual([0, 1, 2])
   })
 })
 

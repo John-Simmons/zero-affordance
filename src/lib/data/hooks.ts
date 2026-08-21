@@ -31,6 +31,7 @@ export const queryKeys = {
     ['experiment-aggregate', experimentId] as const,
   eloAggregate: (experimentId: string) =>
     ['elo-aggregate', experimentId] as const,
+  eloHistory: (experimentId: string) => ['elo-history', experimentId] as const,
   // Keyed by visitor because `votedByVisitor` is part of the payload — two
   // browsers must not share a cache entry.
   videoIdeas: (visitorId: string) => ['video-ideas', visitorId] as const,
@@ -178,13 +179,48 @@ export function useEloAggregate(experimentId: string | undefined) {
   return query
 }
 
+/**
+ * The trajectory behind {@link useEloAggregate}.
+ *
+ * Kept as its own query rather than folded into the aggregate: a run invalidates
+ * the standings on every one of its fifteen votes, and recomputing a sampled
+ * replay that often to redraw a chart nobody is looking at yet is wasted work.
+ * It rides the same subscription, since both read one table.
+ */
+export function useEloHistory(experimentId: string | undefined) {
+  const queryClient = useQueryClient()
+  const query = useQuery({
+    queryKey: queryKeys.eloHistory(experimentId ?? ''),
+    queryFn: () => getDataProvider().getEloHistory(experimentId!),
+    enabled: Boolean(experimentId),
+  })
+
+  useEffect(() => {
+    if (!experimentId) return
+    const provider = getDataProvider()
+    const unsub = provider.subscribeToEloAggregate?.(experimentId, () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.eloHistory(experimentId),
+      })
+    })
+    return unsub
+  }, [experimentId, queryClient])
+
+  return query
+}
+
 export function useRecordMatch() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: MatchInput) => getDataProvider().recordMatch(input),
+    // Both derive from the same match log, so both go stale together. Missing
+    // the history here would leave the chart a vote behind the table.
     onSuccess: (_data, input) => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.eloAggregate(input.experimentId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.eloHistory(input.experimentId),
       })
     },
   })

@@ -8,6 +8,7 @@
  */
 import type {
   EloAggregate,
+  EloHistory,
   Experiment,
   ExperimentAggregate,
   ExperimentSummary,
@@ -49,6 +50,14 @@ export interface DataProvider {
   recordMatch(input: MatchInput): Promise<void>
   /** Derive current Elo ratings by replaying every recorded match. */
   getEloAggregate(experimentId: string): Promise<EloAggregate>
+  /**
+   * Ratings sampled along that same replay, for showing how they got there.
+   *
+   * Must read the same ordered matches `getEloAggregate` does — its last point
+   * is that method's answer, and a chart contradicting the table beside it is
+   * worse than no chart.
+   */
+  getEloHistory(experimentId: string): Promise<EloHistory>
 
   // Video ideas
   /** Ordered by votes, then newest. `visitorId` only resolves `votedByVisitor`. */

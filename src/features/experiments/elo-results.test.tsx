@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { EloResults } from '@/features/experiments/elo-results'
@@ -58,6 +59,33 @@ describe('EloResults', () => {
     // Header and body must agree, or the columns shear.
     expect(screen.getAllByRole('columnheader')).toHaveLength(4)
     expect(screen.getAllByRole('cell')).toHaveLength(4)
+  })
+
+  // A tab strip with one tab is a label wearing a control's clothes, so the
+  // tabs only appear once there is a second view to switch to.
+  it('shows no tabs when given nothing to switch to', () => {
+    render(<EloResults aggregate={aggregate} isLoading={false} />)
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.getByRole('table')).toBeInTheDocument()
+  })
+
+  it('opens on the table and switches to the chart', async () => {
+    render(
+      <EloResults
+        aggregate={aggregate}
+        isLoading={false}
+        chart={<p>Ratings over time</p>}
+      />,
+    )
+
+    // The table is the precise answer; the chart is context for it.
+    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.queryByText('Ratings over time')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Over time' }))
+
+    expect(screen.getByText('Ratings over time')).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
   it('lets the caller wrap the name', () => {

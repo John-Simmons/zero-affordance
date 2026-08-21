@@ -82,6 +82,39 @@ describe('mock data provider', () => {
     }
   })
 
+  it('ends its Elo history on the standings it reports', async () => {
+    // The two read one match log through one helper; this is what catches them
+    // drifting apart and putting different answers one tab from each other.
+    const provider = createMockProvider()
+    await provider.recordMatch({
+      experimentId: 'exp_loading_perception',
+      visitorId: 'test-visitor',
+      variantAId: 'quote',
+      variantBId: 'skeleton',
+      durationAMs: 2100,
+      durationBMs: 2400,
+      outcome: 'b',
+    })
+
+    const agg = await provider.getEloAggregate('exp_loading_perception')
+    const history = await provider.getEloHistory('exp_loading_perception')
+    const last = history.points[history.points.length - 1]
+
+    expect(history.totalMatches).toBe(agg.totalMatches)
+    expect(last.matchCount).toBe(agg.totalMatches)
+    for (const r of agg.ratings)
+      expect(last.ratings[r.variantId]).toBe(r.rating)
+  })
+
+  it('has no Elo history for an experiment it does not know', async () => {
+    const history = await createMockProvider().getEloHistory('nope')
+    expect(history).toEqual({
+      experimentId: 'nope',
+      totalMatches: 0,
+      points: [],
+    })
+  })
+
   describe('video ideas', () => {
     const VISITOR = 'visitor-a'
 

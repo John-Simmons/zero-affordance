@@ -9,6 +9,7 @@ import {
   aggregateExperiment,
   aggregateSurvey,
   computeElo,
+  computeEloHistory,
   rollMatchupDurations,
   roundRobinPairs,
 } from '@/lib/data/aggregate'
@@ -206,6 +207,21 @@ const summarizeExperiment = (e: Experiment): ExperimentSummary => ({
   variantCount: e.variants.length,
 })
 
+/**
+ * Every match for `experiment`, in the order Elo must replay them.
+ *
+ * Shared by the standings and the history so the two can never read a different
+ * list — the chart's last point has to land on the table's ratings.
+ *
+ * Baseline first: it stands in for history that predates this visitor.
+ */
+function orderedMatches(experiment: Experiment): MatchInput[] {
+  const stored = readArray<StoredMatch>(MATCHES_KEY)
+    .filter((m) => m.experimentId === experiment.id)
+    .sort((x, y) => x.createdAt.localeCompare(y.createdAt) || x.seq - y.seq)
+  return [...baselineMatches(experiment), ...stored]
+}
+
 export function createMockProvider(): DataProvider {
   const surveys = seedSurveys
   const experiments = seedExperiments
@@ -293,11 +309,13 @@ export function createMockProvider(): DataProvider {
     async getEloAggregate(experimentId) {
       const exp = findExperiment(experimentId)
       if (!exp) return { experimentId, totalMatches: 0, ratings: [] }
-      const stored = readArray<StoredMatch>(MATCHES_KEY)
-        .filter((m) => m.experimentId === exp.id)
-        .sort((x, y) => x.createdAt.localeCompare(y.createdAt) || x.seq - y.seq)
-      // Baseline first: it stands in for history that predates this visitor.
-      return computeElo(exp, [...baselineMatches(exp), ...stored])
+      return computeElo(exp, orderedMatches(exp))
+    },
+
+    async getEloHistory(experimentId) {
+      const exp = findExperiment(experimentId)
+      if (!exp) return { experimentId, totalMatches: 0, points: [] }
+      return computeEloHistory(exp, orderedMatches(exp))
     },
 
     subscribeToSurveyAggregate(_surveyId, onChange) {

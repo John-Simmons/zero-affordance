@@ -16,8 +16,8 @@ values
     'exp_loading_perception',
     'loading-perception',
     'Which loading state feels faster?',
-    'Start a matchup and two loading indicators run back to back. You only get to watch them a single time, so give them your full attention, then say which one felt quicker. You will judge every pairing — fifteen matchups in all.',
-    'Perceived duration depends on what a loading indicator shows, not just how long it runs. Indicators that convey definite progress should feel faster than ones that merely signal activity, even when they take longer.',
+    'The goal of this experiment is to determine if the type of animation shown while loading a webpage can affect the perceived duration of the loading time. This experiment uses six different loading animations and presents them in pairs, in a randomized order, until every combination has been presented. Your answers in this experiment will contribute to a global Elo score for each loading animation.',
+    'Perceived duration depends on what a loading indicator shows, not just how long it runs.',
     'pairwise',
     'Which one felt faster?',
     0, 0, 0
@@ -34,10 +34,10 @@ on conflict (id) do nothing;
 insert into public.experiment_variants
   (id, experiment_id, label, description, position)
 values
-  ('classic_spinner', 'exp_loading_perception', 'Classic spinner', 'A rotating arc. Signals activity, promises nothing.', 0),
-  ('progress_bar',    'exp_loading_perception', 'Progress bar', 'A determinate bar filling from empty to full.', 1),
-  ('skeleton',        'exp_loading_perception', 'Skeleton', 'Shimmering placeholders shaped like the content that is coming.', 2),
-  ('baking',          'exp_loading_perception', 'Cooking a meal', 'An illustrated cook in three acts: pour, stir, then bake.', 3),
-  ('quote',           'exp_loading_perception', 'Quote', 'Something to read, with an animated ellipsis.', 4),
+  ('classic_spinner', 'exp_loading_perception', 'Classic spinner', 'A rotating arc.', 0),
+  ('progress_bar',    'exp_loading_perception', 'Progress bar', 'A determinate bar filling from 0% to 100%.', 1),
+  ('skeleton',        'exp_loading_perception', 'Skeleton', 'Shimmering placeholders shaped like the content that is loading.', 2),
+  ('baking',          'exp_loading_perception', 'Cooking a meal', 'A multi-part cooking animation: pour, stir, then bake.', 3),
+  ('quote',           'exp_loading_perception', 'Quote', 'A randomized quote, with an animated ellipsis.', 4),
   ('blank',           'exp_loading_perception', 'Blank screen', 'Nothing at all — the control condition.', 5)
 on conflict (experiment_id, id) do nothing;

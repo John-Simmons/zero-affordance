@@ -203,6 +203,33 @@ export interface EloAggregate {
   ratings: EloRating[]
 }
 
+/**
+ * Every variant's rating at one point along the match replay.
+ *
+ * `ratings` is a map rather than the row shape a chart wants, so a variant id
+ * can never collide with `matchCount`. Flattening is the chart's job.
+ */
+export interface EloHistoryPoint {
+  /** Matches replayed up to and including this point. */
+  matchCount: number
+  /** Rating per variant id at that point. */
+  ratings: Record<string, number>
+}
+
+/**
+ * The trajectory behind an {@link EloAggregate}.
+ *
+ * Sampled, not exhaustive: every match is still replayed in order, but only
+ * every nth resulting state is kept. The final point is always the state
+ * {@link EloAggregate} reports, so the two can never disagree.
+ */
+export interface EloHistory {
+  experimentId: string
+  totalMatches: number
+  /** Ascending by matchCount. Always opens at 0 and closes at totalMatches. */
+  points: EloHistoryPoint[]
+}
+
 // ---------------------------------------------------------------------------
 // Video ideas
 // ---------------------------------------------------------------------------

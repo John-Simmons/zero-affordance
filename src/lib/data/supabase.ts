@@ -16,6 +16,7 @@ import {
   aggregateExperiment,
   aggregateSurvey,
   computeElo,
+  computeEloHistory,
 } from '@/lib/data/aggregate'
 import { normalizeIdea } from '@/lib/data/ideas'
 import type { DataProvider, Unsubscribe } from '@/lib/data/provider'
@@ -165,6 +166,37 @@ export function createSupabaseProvider(
     }
   }
 
+  /**
+   * Every match for `experiment`, in the order Elo must replay them.
+   *
+   * Shared by the standings and the history so the two can never read a
+   * different list — the chart's last point has to land on the table's ratings.
+   */
+  async function loadMatches(experiment: Experiment): Promise<MatchInput[]> {
+    const { data, error } = await client
+      .from('experiment_matches')
+      .select(
+        'variant_a_id, variant_b_id, duration_a_ms, duration_b_ms, outcome',
+      )
+      .eq('experiment_id', experiment.id)
+      // Load-bearing, not cosmetic: Elo is path-dependent, so an unordered
+      // read would yield different ratings from the same rows. `id` breaks
+      // ties within a millisecond.
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .returns<MatchRow[]>()
+    if (error) throw error
+    return (data ?? []).map((m) => ({
+      experimentId: experiment.id,
+      visitorId: '',
+      variantAId: m.variant_a_id,
+      variantBId: m.variant_b_id,
+      durationAMs: m.duration_a_ms,
+      durationBMs: m.duration_b_ms,
+      outcome: m.outcome,
+    }))
+  }
+
   return {
     async listSurveys() {
       const { data, error } = await client
@@ -284,29 +316,13 @@ export function createSupabaseProvider(
     async getEloAggregate(experimentId: string) {
       const exp = await loadExperiment(experimentId)
       if (!exp) return { experimentId, totalMatches: 0, ratings: [] }
-      const { data, error } = await client
-        .from('experiment_matches')
-        .select(
-          'variant_a_id, variant_b_id, duration_a_ms, duration_b_ms, outcome',
-        )
-        .eq('experiment_id', exp.id)
-        // Load-bearing, not cosmetic: Elo is path-dependent, so an unordered
-        // read would yield different ratings from the same rows. `id` breaks
-        // ties within a millisecond.
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true })
-        .returns<MatchRow[]>()
-      if (error) throw error
-      const matches: MatchInput[] = (data ?? []).map((m) => ({
-        experimentId: exp.id,
-        visitorId: '',
-        variantAId: m.variant_a_id,
-        variantBId: m.variant_b_id,
-        durationAMs: m.duration_a_ms,
-        durationBMs: m.duration_b_ms,
-        outcome: m.outcome,
-      }))
-      return computeElo(exp, matches)
+      return computeElo(exp, await loadMatches(exp))
+    },
+
+    async getEloHistory(experimentId: string) {
+      const exp = await loadExperiment(experimentId)
+      if (!exp) return { experimentId, totalMatches: 0, points: [] }
+      return computeEloHistory(exp, await loadMatches(exp))
     },
 
     subscribeToSurveyAggregate(surveyId: string, onChange): Unsubscribe {

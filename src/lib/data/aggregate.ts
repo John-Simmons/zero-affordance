@@ -7,6 +7,8 @@
  */
 import type {
   EloAggregate,
+  EloHistory,
+  EloHistoryPoint,
   EloRating,
   Experiment,
   ExperimentAggregate,
@@ -215,6 +217,82 @@ function expectedScore(
   return 1 / (1 + 10 ** ((ratingB - ratingA - handicapA) / 400))
 }
 
+/** Every declared variant at its opening rating, ready to be replayed into. */
+function startingRatings(
+  experiment: Experiment,
+  initialRatings?: Record<string, number>,
+): Map<string, EloRating> {
+  return new Map(
+    experiment.variants.map((v) => [
+      v.id,
+      {
+        variantId: v.id,
+        label: v.label,
+        rating: initialRatings?.[v.id] ?? START_RATING,
+        matches: 0,
+        wins: 0,
+        losses: 0,
+        ties: 0,
+      },
+    ]),
+  )
+}
+
+/**
+ * Whether a match is one the experiment can be rated on.
+ *
+ * Matches naming a variant the experiment no longer declares are skipped, so
+ * removing a variant degrades gracefully instead of throwing.
+ */
+function counts(byId: Map<string, EloRating>, m: MatchInput): boolean {
+  return (
+    m.variantAId !== m.variantBId &&
+    byId.has(m.variantAId) &&
+    byId.has(m.variantBId)
+  )
+}
+
+/**
+ * Apply one match to `byId` in place, reporting whether it counted.
+ *
+ * Extracted so {@link computeElo} and {@link computeEloHistory} share one
+ * definition of what a match does to a rating. Two copies of this loop would
+ * eventually drift, and the drift would show up as a chart that disagrees with
+ * the table printed beside it.
+ */
+function applyMatch(byId: Map<string, EloRating>, m: MatchInput): boolean {
+  if (!counts(byId, m)) return false
+  const a = byId.get(m.variantAId)!
+  const b = byId.get(m.variantBId)!
+
+  const expectedA = expectedScore(
+    a.rating,
+    b.rating,
+    m.durationAMs,
+    m.durationBMs,
+  )
+  const scoreA = m.outcome === 'a' ? 1 : m.outcome === 'b' ? 0 : 0.5
+  const delta = K_FACTOR * (scoreA - expectedA)
+
+  // Zero-sum: whatever A gains, B loses.
+  a.rating += delta
+  b.rating -= delta
+
+  a.matches += 1
+  b.matches += 1
+  if (m.outcome === 'tie') {
+    a.ties += 1
+    b.ties += 1
+  } else if (m.outcome === 'a') {
+    a.wins += 1
+    b.losses += 1
+  } else {
+    a.losses += 1
+    b.wins += 1
+  }
+  return true
+}
+
 /**
  * Replay `matches` in order to derive each variant's current Elo rating.
  *
@@ -231,62 +309,18 @@ function expectedScore(
  * moves the needle differently depending on what came before it. Variants absent
  * from the map fall back to START_RATING.
  *
- * Matches naming a variant the experiment no longer declares are skipped, so
- * removing a variant degrades gracefully instead of throwing.
+ * Matches the experiment cannot be rated on are skipped — see {@link counts}.
  */
 export function computeElo(
   experiment: Experiment,
   matches: MatchInput[],
   initialRatings?: Record<string, number>,
 ): EloAggregate {
-  const byId = new Map<string, EloRating>(
-    experiment.variants.map((v) => [
-      v.id,
-      {
-        variantId: v.id,
-        label: v.label,
-        rating: initialRatings?.[v.id] ?? START_RATING,
-        matches: 0,
-        wins: 0,
-        losses: 0,
-        ties: 0,
-      },
-    ]),
-  )
+  const byId = startingRatings(experiment, initialRatings)
 
   let totalMatches = 0
-
   for (const m of matches) {
-    const a = byId.get(m.variantAId)
-    const b = byId.get(m.variantBId)
-    if (!a || !b || a === b) continue
-
-    const expectedA = expectedScore(
-      a.rating,
-      b.rating,
-      m.durationAMs,
-      m.durationBMs,
-    )
-    const scoreA = m.outcome === 'a' ? 1 : m.outcome === 'b' ? 0 : 0.5
-    const delta = K_FACTOR * (scoreA - expectedA)
-
-    // Zero-sum: whatever A gains, B loses.
-    a.rating += delta
-    b.rating -= delta
-
-    a.matches += 1
-    b.matches += 1
-    if (m.outcome === 'tie') {
-      a.ties += 1
-      b.ties += 1
-    } else if (m.outcome === 'a') {
-      a.wins += 1
-      b.losses += 1
-    } else {
-      a.losses += 1
-      b.wins += 1
-    }
-    totalMatches += 1
+    if (applyMatch(byId, m)) totalMatches += 1
   }
 
   const ratings = [...byId.values()].sort(
@@ -294,6 +328,65 @@ export function computeElo(
   )
 
   return { experimentId: experiment.id, totalMatches, ratings }
+}
+
+/**
+ * How many states {@link computeEloHistory} keeps.
+ *
+ * Enough to show the shape of a trajectory, few enough that six overlaid lines
+ * stay readable and the payload stays small. The cap is on the *output*: every
+ * match is still replayed, so the sampling cannot change the ratings.
+ */
+export const MAX_HISTORY_POINTS = 60
+
+/**
+ * Ratings sampled along the same replay {@link computeElo} ends at.
+ *
+ * Shares {@link applyMatch}, so this is the identical computation observed part
+ * way through rather than a second implementation of it. The final point is
+ * therefore exactly what `computeElo` reports for the same matches — the one
+ * invariant worth protecting here, since the chart and the standings table are
+ * shown side by side.
+ *
+ * Sampling every nth state rather than every state preserves path-dependence
+ * (see {@link computeElo}): matches are never skipped, only snapshots.
+ */
+export function computeEloHistory(
+  experiment: Experiment,
+  matches: MatchInput[],
+): EloHistory {
+  const byId = startingRatings(experiment)
+  const snapshot = (matchCount: number): EloHistoryPoint => ({
+    matchCount,
+    ratings: Object.fromEntries(
+      [...byId.values()].map((r) => [r.variantId, r.rating]),
+    ),
+  })
+
+  // Filtered up front rather than counted as we go: the stride needs the total
+  // before the walk starts, and skipped rows must not advance the x-axis past
+  // the total the standings report.
+  const counted = matches.filter((m) => counts(byId, m))
+  const stride = Math.max(
+    1,
+    Math.ceil(counted.length / (MAX_HISTORY_POINTS - 1)),
+  )
+
+  // Opens at the origin so the chart shows every variant leaving 1500 together
+  // rather than starting mid-flight.
+  const points: EloHistoryPoint[] = [snapshot(0)]
+  counted.forEach((m, i) => {
+    applyMatch(byId, m)
+    const n = i + 1
+    // The last point is always emitted, whatever the stride lands on.
+    if (n % stride === 0 || n === counted.length) points.push(snapshot(n))
+  })
+
+  return {
+    experimentId: experiment.id,
+    totalMatches: counted.length,
+    points,
+  }
 }
 
 /** How well a participant's votes matched the durations that actually ran. */

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { AccuracyScore } from '@/features/experiments/accuracy-score'
+import { EloHistoryChart } from '@/features/experiments/elo-history-chart'
 import { EloResults } from '@/features/experiments/elo-results'
 import { HypothesisCard } from '@/features/experiments/hypothesis-card'
 import { IndicatorPreview } from '@/features/experiments/indicator-preview'
@@ -21,7 +22,11 @@ import {
   roundRobinPairs,
   START_RATING,
 } from '@/lib/data/aggregate'
-import { useEloAggregate, useRecordMatch } from '@/lib/data/hooks'
+import {
+  useEloAggregate,
+  useEloHistory,
+  useRecordMatch,
+} from '@/lib/data/hooks'
 import type {
   EloAggregate,
   Experiment,
@@ -272,6 +277,9 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
   // they were BEFORE this run. Nothing renders it until `phase` is 'results',
   // which is reached either by playing or by explicitly skipping.
   const aggregate = useEloAggregate(experiment.id)
+  // Its own query, not part of `aggregate`: it is only ever read on the results
+  // screen, and the chart it feeds sits behind a tab.
+  const history = useEloHistory(experiment.id)
 
   // Frozen on first arrival. Each vote invalidates the elo query, so this
   // refetches ten times during a run — without freezing, the baseline would
@@ -416,6 +424,16 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
                   r.label
                 )
               }}
+              // Inverted for the same reason as `renderLabel`: the standings
+              // render from an aggregate, and a trajectory needs the seeded
+              // variants to colour and name its lines.
+              chart={
+                <EloHistoryChart
+                  experiment={experiment}
+                  history={history.data}
+                  isLoading={history.isLoading}
+                />
+              }
             />
           </CardContent>
         </Card>
