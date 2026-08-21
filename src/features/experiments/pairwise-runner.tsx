@@ -2,17 +2,19 @@ import { ArrowRight, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { AccuracyScore } from '@/features/experiments/accuracy-score'
-import { EloResults } from '@/features/experiments/elo-results'
-import { IndicatorPreview } from '@/features/experiments/indicator-preview'
-import { loadingIndicators } from '@/features/experiments/indicators'
-import { LoadedContent } from '@/features/experiments/loaded-content'
-import { useTimedProgress } from '@/features/experiments/use-timed-progress'
-import { PairwiseIntro } from '@/features/experiments/pairwise-intro'
+import { Mark } from '@/components/layout/mark'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
+import { AccuracyScore } from '@/features/experiments/accuracy-score'
+import { EloResults } from '@/features/experiments/elo-results'
+import { HypothesisCard } from '@/features/experiments/hypothesis-card'
+import { IndicatorPreview } from '@/features/experiments/indicator-preview'
+import { loadingIndicators } from '@/features/experiments/indicators'
+import { LoadedContent } from '@/features/experiments/loaded-content'
+import { PairwiseIntro } from '@/features/experiments/pairwise-intro'
+import { useTimedProgress } from '@/features/experiments/use-timed-progress'
 import {
   computeElo,
   rollMatchupDurations,
@@ -20,7 +22,6 @@ import {
   START_RATING,
 } from '@/lib/data/aggregate'
 import { useEloAggregate, useRecordMatch } from '@/lib/data/hooks'
-import { cn } from '@/lib/utils'
 import type {
   EloAggregate,
   Experiment,
@@ -28,6 +29,7 @@ import type {
   MatchInput,
   MatchOutcome,
 } from '@/lib/data/types'
+import { cn } from '@/lib/utils'
 import { getVisitorId } from '@/lib/visitor'
 
 /** One head-to-head, with playback order and durations already decided. */
@@ -69,8 +71,15 @@ const HOLD_MS = 1000
  * Fixed, so the card is exactly as tall while an animation plays as it is while
  * you vote — the page never jumps. The frame inside simply flexes, reclaiming
  * the vote block's space during playback, which is when it is wanted.
+ *
+ * Grows past `sm`, into the room the hypothesis card gave back when it stopped
+ * rendering during matchups. All of it lands on the stimulus frame, which is
+ * where height is worth the most (see `STIMULUS_CANVAS`). Small screens stay at
+ * the original height on purpose: they have the least to spare vertically, and
+ * this card plus the vote block is already about as much as fits above the fold
+ * on a phone.
  */
-const MATCHUP_AREA = 'h-112'
+const MATCHUP_AREA = 'h-112 sm:h-136'
 
 /**
  * The area a loading state gets to occupy.
@@ -381,7 +390,10 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Standings</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Mark className="size-5" />
+              Global standings
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <EloResults
@@ -407,26 +419,58 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
             />
           </CardContent>
         </Card>
+
+        <HypothesisCard experiment={experiment} />
       </div>
     )
   }
 
   if (phase === 'intro') {
     return (
-      <PairwiseIntro
-        experiment={experiment}
-        onStart={() => setPhase('playing')}
-        onSkip={() => setPhase('results')}
-      />
+      // Same self-contained spacing as the results phase above.
+      <div className="space-y-6">
+        <PairwiseIntro
+          experiment={experiment}
+          onStart={() => setPhase('playing')}
+          onSkip={() => setPhase('results')}
+        />
+
+        <HypothesisCard experiment={experiment} />
+      </div>
     )
   }
+
+  // Falls through to the matchups, which render no hypothesis: it is one more
+  // thing to read while the whole point is to watch the loading states.
 
   return (
     <Card>
       <CardHeader className="gap-3">
-        <div className="flex items-center justify-between">
-          <CardTitle>Which felt faster?</CardTitle>
-          <Badge variant="secondary">
+        {/*
+          Question left, which-of-the-two centred, count right. Three columns
+          rather than a flex row because the two 1fr sides are equal by
+          construction, so the middle badge sits on the card's centre line
+          rather than wherever the other two leave it.
+
+          The stage badge renders in every stage and merely goes `invisible`
+          between them, with a `min-w` wide enough for the longer of its two
+          strings. Both of those exist so the column never changes width: it
+          used to sit in a fixed-height row below, reserving its space the same
+          way, and without the reserve the title and count would twitch sideways
+          each time a run started or the second variant came up.
+        */}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <CardTitle className="min-w-0">Which felt faster?</CardTitle>
+          <Badge
+            variant="secondary"
+            className={cn(
+              'min-w-24',
+              (stage === 'idle' || stage === 'voting') && 'invisible',
+            )}
+          >
+            {stage.startsWith('first') ? 'First of two' : 'Second of two'}
+          </Badge>
+          <Badge variant="secondary" className="justify-self-end">
             Matchup {round + 1} of {plan.length}
           </Badge>
         </div>
@@ -444,74 +488,64 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
         that drift is what made the page jump before.
       */}
       <CardContent className={cn('flex flex-col gap-6', MATCHUP_AREA)}>
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
-          <div className="flex h-6 shrink-0 items-center justify-center">
-            {stage !== 'idle' && stage !== 'voting' && (
-              <Badge variant="secondary">
-                {stage.startsWith('first') ? 'First of two' : 'Second of two'}
-              </Badge>
-            )}
-          </div>
-
-          {/* The frame. Identical for both variants in a matchup, which is what
-              keeps footprint from becoming a second independent variable. */}
-          <div className="min-h-0 flex-1">
-            {stage === 'idle' && (
-              // The trigger sits where the loading state is about to appear, so
-              // the eye is already on the right spot when playback starts.
-              <div className={STIMULUS_CANVAS}>
-                <div className="flex h-full items-center justify-center">
-                  <Button type="button" onClick={() => setStage('first')}>
-                    Start matchup {round + 1}
-                  </Button>
-                </div>
+        {/* The frame. Identical for both variants in a matchup, which is what
+            keeps footprint from becoming a second independent variable. */}
+        <div className="min-h-0 flex-1">
+          {stage === 'idle' && (
+            // The trigger sits where the loading state is about to appear, so
+            // the eye is already on the right spot when playback starts.
+            <div className={STIMULUS_CANVAS}>
+              <div className="flex h-full items-center justify-center">
+                <Button type="button" onClick={() => setStage('first')}>
+                  Start matchup {round + 1}
+                </Button>
               </div>
-            )}
+            </div>
+          )}
 
-            {(stage === 'first' || stage === 'first-held') && (
-              <StimulusCanvas
-                key={`${round}-a`}
+          {(stage === 'first' || stage === 'first-held') && (
+            <StimulusCanvas
+              key={`${round}-a`}
+              variant={matchup.a}
+              seed={matchup.seed}
+              durationMs={matchup.durationAMs}
+              loaded={stage === 'first-held'}
+              onDone={() => setStage('first-held')}
+            />
+          )}
+
+          {(stage === 'second' || stage === 'second-held') && (
+            <StimulusCanvas
+              key={`${round}-b`}
+              variant={matchup.b}
+              seed={matchup.seed}
+              durationMs={matchup.durationBMs}
+              loaded={stage === 'second-held'}
+              onDone={() => setStage('second-held')}
+            />
+          )}
+
+          {stage === 'voting' && (
+            // Explicit rows, because implicit ones are `auto`: they size to
+            // the tallest panel and happily overflow the frame. A full-frame
+            // indicator (the skeleton) then pushed the panels past the vote
+            // buttons and out of the card, and no amount of overflow-hidden
+            // below could help — nothing had a bounded height to clip
+            // against. minmax(0, 1fr), which is what grid-rows-N expands to,
+            // pins each row to its share of the frame instead.
+            <div className="grid h-full grid-rows-2 gap-4 sm:grid-cols-2 sm:grid-rows-1">
+              <RecapPanel
                 variant={matchup.a}
+                position="First"
                 seed={matchup.seed}
-                durationMs={matchup.durationAMs}
-                loaded={stage === 'first-held'}
-                onDone={() => setStage('first-held')}
               />
-            )}
-
-            {(stage === 'second' || stage === 'second-held') && (
-              <StimulusCanvas
-                key={`${round}-b`}
+              <RecapPanel
                 variant={matchup.b}
+                position="Second"
                 seed={matchup.seed}
-                durationMs={matchup.durationBMs}
-                loaded={stage === 'second-held'}
-                onDone={() => setStage('second-held')}
               />
-            )}
-
-            {stage === 'voting' && (
-              // Explicit rows, because implicit ones are `auto`: they size to
-              // the tallest panel and happily overflow the frame. A full-frame
-              // indicator (the skeleton) then pushed the panels past the vote
-              // buttons and out of the card, and no amount of overflow-hidden
-              // below could help — nothing had a bounded height to clip
-              // against. minmax(0, 1fr), which is what grid-rows-N expands to,
-              // pins each row to its share of the frame instead.
-              <div className="grid h-full grid-rows-2 gap-4 sm:grid-cols-2 sm:grid-rows-1">
-                <RecapPanel
-                  variant={matchup.a}
-                  position="First"
-                  seed={matchup.seed}
-                />
-                <RecapPanel
-                  variant={matchup.b}
-                  position="Second"
-                  seed={matchup.seed}
-                />
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/*

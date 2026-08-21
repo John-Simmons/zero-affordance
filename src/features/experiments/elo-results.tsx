@@ -76,19 +76,26 @@ export function EloResults({
 
       {/*
         Capped rather than full-width. The card is max-w-4xl to give the
-        stimulus canvas room, but four short columns stretched across that
-        leaves the unconstrained name column absorbing ~350px of empty space,
-        pushing the rating far from the label it belongs to.
+        stimulus canvas room, but a handful of short columns stretched across
+        that leaves the unconstrained name column absorbing ~350px of empty
+        space, pushing the rating far from the label it belongs to.
 
         No overflow wrapper here — shadcn's Table already renders one.
+
+        Both numeric columns align left, against the convention for numbers,
+        because the rating carries a trailing delta. Right-aligned, the pair was
+        aligned as a unit, so a row ending "(±0)" and one ending "(−12)" put
+        their ratings in different places — lined up with neither each other nor
+        the "Elo rating" header. Aligned left, the rating leads the cell, so every
+        rating and its header start on one edge whatever follows them.
       */}
       <Table className="mx-auto max-w-md">
         <TableHeader>
           <TableRow>
             <TableHead className="w-10">#</TableHead>
             <TableHead>Loading state</TableHead>
-            <TableHead className="w-28 text-right">Rating</TableHead>
-            <TableHead className="w-20 text-right">W–D–L</TableHead>
+            <TableHead className="w-28">Elo rating</TableHead>
+            <TableHead className="w-20">W–D–L</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -100,8 +107,18 @@ export function EloResults({
               <TableCell className="font-medium">
                 {renderLabel ? renderLabel(r) : r.label}
               </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {Math.round(r.rating)}
+              <TableCell className="tabular-nums">
+                {/*
+                  The width floor is what keeps the deltas aligned with each
+                  other and not merely the ratings: `tabular-nums` equalises
+                  digit widths but not digit counts, so a rating that ever fell
+                  to three figures would drag its delta a character left. It
+                  doubles as the gap, and the literal space keeps the cell
+                  reading "1520 (+12)" rather than "1520(+12)".
+                */}
+                <span className="inline-block min-w-10">
+                  {Math.round(r.rating)}
+                </span>
                 {deltas && (
                   <>
                     {' '}
@@ -109,7 +126,7 @@ export function EloResults({
                   </>
                 )}
               </TableCell>
-              <TableCell className="text-right text-muted-foreground tabular-nums">
+              <TableCell className="text-muted-foreground tabular-nums">
                 {r.wins}–{r.ties}–{r.losses}
               </TableCell>
             </TableRow>

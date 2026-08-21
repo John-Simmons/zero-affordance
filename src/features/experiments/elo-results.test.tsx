@@ -30,6 +30,36 @@ describe('EloResults', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
+  // The rating leads its own cell, which is what puts every rating and the
+  // "Elo rating" header on one left edge. Asserting the whole cell text also
+  // catches the separating space going missing, which would leave the pair
+  // announced as "1520(+12)".
+  it('reads the rating and its change as one cell', () => {
+    render(
+      <EloResults
+        aggregate={aggregate}
+        isLoading={false}
+        deltas={{ skeleton: 12 }}
+        voteCount={15}
+      />,
+    )
+    expect(screen.getByRole('cell', { name: '1520 (+12)' })).toBeInTheDocument()
+  })
+
+  it('adds no column for the change', () => {
+    render(
+      <EloResults
+        aggregate={aggregate}
+        isLoading={false}
+        deltas={{ skeleton: 12 }}
+        voteCount={15}
+      />,
+    )
+    // Header and body must agree, or the columns shear.
+    expect(screen.getAllByRole('columnheader')).toHaveLength(4)
+    expect(screen.getAllByRole('cell')).toHaveLength(4)
+  })
+
   it('lets the caller wrap the name', () => {
     render(
       <EloResults

@@ -1,3 +1,4 @@
+import { Mark } from '@/components/layout/mark'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { Experiment } from '@/lib/data/types'
@@ -16,7 +17,8 @@ import type { Experiment } from '@/lib/data/types'
  * step — rendering it in both places would show the same text twice on one
  * screen, which is why it lived in only one of them to begin with.
  *
- * Still does NOT repeat `hypothesis`; the detail route renders that below.
+ * Still does NOT repeat `hypothesis`; `PairwiseRunner` renders that below
+ * this card, and again on the standings, but not during the matchups.
  */
 export function PairwiseIntro({
   experiment,
@@ -33,7 +35,12 @@ export function PairwiseIntro({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Before you start</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          {/* The favicon inline, at heading size. Decorative (the Mark is
+              aria-hidden), so the heading still reads as just its text. */}
+          <Mark className="size-5" />
+          Before you start
+        </CardTitle>
       </CardHeader>
 
       <CardContent className="space-y-6">
@@ -54,9 +61,6 @@ export function PairwiseIntro({
               ranks.
             </li>
           </ol>
-          <p className="pt-1 text-xs">
-            You only get to watch each pair once, so give them your attention.
-          </p>
           {/*
             Says "within a matchup" explicitly now that the base moves between
             matchups. The old wording read as a claim about the whole run, which

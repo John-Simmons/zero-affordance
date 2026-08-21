@@ -19,9 +19,9 @@ export const seedExperiments: Experiment[] = [
     slug: 'loading-perception',
     title: 'Which loading state feels faster?',
     description:
-      'Start a matchup and two loading indicators run back to back. You only get to watch them a single time, so give them your full attention, then say which one felt quicker. You will judge every pairing — fifteen matchups in all.',
+      'The goal of this experiment is to determine if the type of animation shown while loading a webpage can effect the perceived duration of the loading time. This experiment uses six different loading animations and presents them in pairs, in a randomized order, until every combination has been presented. Your answers in this experiment will contribute to a global ELO score for each loading animation.',
     hypothesis:
-      'Perceived duration depends on what a loading indicator shows, not just how long it runs. Indicators that convey definite progress should feel faster than ones that merely signal activity, even when they take longer.',
+      'Perceived duration depends on what a loading indicator shows, not just how long it runs.',
     kind: 'pairwise',
     // Not used by pairwise experiments (the outcome is a vote, not a scale),
     // but `Experiment` requires them; metricLabel doubles as the vote prompt.
@@ -41,29 +41,28 @@ export const seedExperiments: Experiment[] = [
       {
         id: 'classic_spinner',
         label: 'Classic spinner',
-        description: 'A rotating arc. Signals activity, promises nothing.',
+        description: 'A rotating arc.',
       },
       {
         id: 'progress_bar',
         label: 'Progress bar',
-        description: 'A determinate bar filling from empty to full.',
+        description: 'A determinate bar filling from 0% to 100%.',
       },
       {
         id: 'skeleton',
         label: 'Skeleton',
         description:
-          'Shimmering placeholders shaped like the content that is coming.',
+          'Shimmering placeholders shaped like the content that is loading.',
       },
       {
         id: 'baking',
         label: 'Cooking a meal',
-        description:
-          'An illustrated cook in three acts: pour, stir, then bake.',
+        description: 'A multi-part cooking animation: pour, stir, then bake.',
       },
       {
         id: 'quote',
         label: 'Quote',
-        description: 'Something to read, with an animated ellipsis.',
+        description: 'A randomized quote, with an animated ellipsis.',
       },
       {
         id: 'blank',

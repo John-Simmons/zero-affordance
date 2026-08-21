@@ -1,3 +1,4 @@
+import { Mark } from '@/components/layout/mark'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { scoreAccuracy } from '@/lib/data/aggregate'
 import type { MatchInput } from '@/lib/data/types'
@@ -20,7 +21,10 @@ export function AccuracyScore({ matches }: { matches: MatchInput[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Your perception score</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Mark className="size-5" />
+          Your perception score
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {scored === 0 ? (
@@ -50,7 +54,7 @@ export function AccuracyScore({ matches }: { matches: MatchInput[] }) {
                 shorter.
               </p>
             </div>
-            <p className="text-sm text-pretty text-muted-foreground">
+            <p className="text-sm text-pretty">
               A low score is the finding, not a failure: it is direct evidence
               that how a wait is presented matters more than how long it
               actually lasts.

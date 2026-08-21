@@ -20,7 +20,7 @@ export const siteConfig = {
   tagline: 'Exploring how we interact with everyday technology.',
   /** Not currently rendered — kept for reuse in the hero or page metadata. */
   description:
-    'Finding answers through experiments and surveys about the everyday products and interactions in our lives.',
+    'Finding answers through studies about the everyday products and interactions in our lives.',
   /** Rendered as a dictionary entry in the home page hero. */
   definition: {
     headword: 'affordance',
