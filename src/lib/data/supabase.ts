@@ -10,7 +10,7 @@
  * aggregation into Postgres views/RPC and point these methods at them — the UI
  * won't need to change because the return types are unchanged.
  */
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 
 import {
   aggregateExperiment,
@@ -101,6 +101,85 @@ function mapQuestion(row: QuestionRow): SurveyQuestion {
     max: row.max ?? undefined,
     minLabel: row.min_label ?? undefined,
     maxLabel: row.max_label ?? undefined,
+  }
+}
+
+/** One realtime channel plus everyone currently listening to it. */
+interface SharedChannel {
+  channel: RealtimeChannel
+  listeners: Set<() => void>
+}
+
+/**
+ * Live channels per client, keyed by the logical topic they carry.
+ *
+ * supabase-js hands back the EXISTING channel when asked for a topic it already
+ * holds (`RealtimeClient.channel`), and `RealtimeChannel.on` throws once that
+ * channel has joined. So a second caller subscribing to the same thing used to
+ * crash the page with "cannot add `postgres_changes` callbacks … after
+ * `subscribe()`" — which is exactly what two hooks watching one table do.
+ *
+ * The mock adapter has always held a Set of listeners per key and been safe to
+ * call any number of times, so multiplexing here is what puts the two adapters
+ * back on identical behaviour rather than a special case for Supabase.
+ *
+ * Keyed by client, not held per provider, so several providers sharing one
+ * client cannot each think they own the topic.
+ */
+const sharedChannels = new WeakMap<SupabaseClient, Map<string, SharedChannel>>()
+
+/** Makes each created channel's name unique — see the note in `subscribeToChanges`. */
+let channelSeq = 0
+
+/**
+ * Watch one table for changes, sharing a channel with anyone already watching.
+ *
+ * The returned unsubscribe detaches only that caller; the channel closes when
+ * the last listener leaves.
+ */
+function subscribeToChanges(
+  client: SupabaseClient,
+  topic: string,
+  change: { event: 'INSERT' | '*'; table: string; filter?: string },
+  onChange: () => void,
+): Unsubscribe {
+  const byTopic = sharedChannels.get(client) ?? new Map<string, SharedChannel>()
+  sharedChannels.set(client, byTopic)
+
+  let shared = byTopic.get(topic)
+  if (!shared) {
+    const listeners = new Set<() => void>()
+    const channel = client
+      // The `#n` suffix keeps every channel we create uniquely named.
+      // `removeChannel` only drops a topic from the client once the server acks
+      // the leave, so reusing the bare name can hand back the previous,
+      // still-joined channel — and `.on()` throws on one of those. A name that
+      // has never been used cannot collide with one on its way out.
+      .channel(`${topic}#${(channelSeq += 1)}`)
+      .on(
+        'postgres_changes',
+        { schema: 'public', ...change },
+        // Reads the set at call time, so listeners can come and go without the
+        // channel being rebuilt — and without a second `.on()`, which is the
+        // call that throws.
+        () => listeners.forEach((fn) => fn()),
+      )
+      .subscribe()
+    shared = { channel, listeners }
+    byTopic.set(topic, shared)
+  }
+
+  const held = shared
+  held.listeners.add(onChange)
+
+  return () => {
+    held.listeners.delete(onChange)
+    if (held.listeners.size > 0) return
+    // Dropped from the registry before the await starts, so a subscriber
+    // arriving mid-removal builds a fresh channel instead of attaching to one
+    // that is already leaving.
+    if (byTopic.get(topic) === held) byTopic.delete(topic)
+    void client.removeChannel(held.channel)
   }
 }
 
@@ -326,63 +405,47 @@ export function createSupabaseProvider(
     },
 
     subscribeToSurveyAggregate(surveyId: string, onChange): Unsubscribe {
-      const channel = client
-        .channel(`survey_responses:${surveyId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'survey_responses',
-            filter: `survey_id=eq.${surveyId}`,
-          },
-          () => onChange(),
-        )
-        .subscribe()
-      return () => {
-        void client.removeChannel(channel)
-      }
+      return subscribeToChanges(
+        client,
+        `survey_responses:${surveyId}`,
+        {
+          event: 'INSERT',
+          table: 'survey_responses',
+          filter: `survey_id=eq.${surveyId}`,
+        },
+        onChange,
+      )
     },
 
     subscribeToExperimentAggregate(
       experimentId: string,
       onChange,
     ): Unsubscribe {
-      const channel = client
-        .channel(`experiment_interactions:${experimentId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'experiment_interactions',
-            filter: `experiment_id=eq.${experimentId}`,
-          },
-          () => onChange(),
-        )
-        .subscribe()
-      return () => {
-        void client.removeChannel(channel)
-      }
+      return subscribeToChanges(
+        client,
+        `experiment_interactions:${experimentId}`,
+        {
+          event: 'INSERT',
+          table: 'experiment_interactions',
+          filter: `experiment_id=eq.${experimentId}`,
+        },
+        onChange,
+      )
     },
 
     subscribeToEloAggregate(experimentId: string, onChange): Unsubscribe {
-      const channel = client
-        .channel(`experiment_matches:${experimentId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'experiment_matches',
-            filter: `experiment_id=eq.${experimentId}`,
-          },
-          () => onChange(),
-        )
-        .subscribe()
-      return () => {
-        void client.removeChannel(channel)
-      }
+      // Two hooks watch this one: the standings and the history chart. They
+      // share the channel `subscribeToChanges` keeps for the topic.
+      return subscribeToChanges(
+        client,
+        `experiment_matches:${experimentId}`,
+        {
+          event: 'INSERT',
+          table: 'experiment_matches',
+          filter: `experiment_id=eq.${experimentId}`,
+        },
+        onChange,
+      )
     },
 
     async listVideoIdeas(visitorId: string): Promise<VideoIdea[]> {
@@ -449,24 +512,18 @@ export function createSupabaseProvider(
     },
 
     subscribeToVideoIdeas(onChange): Unsubscribe {
-      const channel = client
-        .channel('video_ideas')
-        .on(
-          'postgres_changes',
-          {
-            // '*', not INSERT. Unlike every other subscription here the rows are
-            // not append-only: a vote updates vote_count, and moderation from
-            // the dashboard deletes.
-            event: '*',
-            schema: 'public',
-            table: 'video_ideas',
-          },
-          () => onChange(),
-        )
-        .subscribe()
-      return () => {
-        void client.removeChannel(channel)
-      }
+      return subscribeToChanges(
+        client,
+        'video_ideas',
+        {
+          // '*', not INSERT. Unlike every other subscription here the rows are
+          // not append-only: a vote updates vote_count, and moderation from the
+          // dashboard deletes.
+          event: '*',
+          table: 'video_ideas',
+        },
+        onChange,
+      )
     },
   }
 }
