@@ -7,6 +7,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { AccuracyScore } from '@/features/experiments/accuracy-score'
 import { EloHistoryChart } from '@/features/experiments/elo-history-chart'
 import { EloResults } from '@/features/experiments/elo-results'
@@ -68,6 +73,16 @@ type Stage =
 
 /** How long the loaded article stays up. Identical for both, so neither gains. */
 const HOLD_MS = 1000
+
+/**
+ * Redos allowed per matchup.
+ *
+ * One: enough to recover from a lapse in attention, which is what testers
+ * actually reported, and not enough to shop for a result. Matches are
+ * append-only, so a vote cast on a matchup nobody really watched can never be
+ * retracted — the recovery has to happen before it is cast.
+ */
+const REDOS_PER_MATCHUP = 1
 
 /**
  * Total height of the matchup area: badge row, stimulus frame, and the vote
@@ -254,6 +269,62 @@ function RecapPanel({
   )
 }
 
+/**
+ * The way out of a matchup you couldn't judge.
+ *
+ * Quieter than the three answers on purpose: this is an escape hatch, not a
+ * fourth thing you might mean. It also stays put once spent rather than
+ * disappearing, so the cap reads as a rule of the experiment instead of as a
+ * control that vanished — and the count is in the label so the rule is legible
+ * before you press it, not only after.
+ */
+function RedoButton({
+  redosLeft,
+  disabled,
+  onRedo,
+}: {
+  redosLeft: number
+  disabled: boolean
+  onRedo: () => void
+}) {
+  const button = (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      disabled={disabled}
+      onClick={onRedo}
+    >
+      <RotateCcw />
+      Redo matchup ({redosLeft} left)
+    </Button>
+  )
+
+  // Nothing to explain while one is still there to spend — and a tooltip on a
+  // live control would just restate its own label.
+  if (redosLeft > 0) return button
+
+  return (
+    <Tooltip>
+      {/*
+        The span is the trigger, not the button: `disabled` buttons fire no
+        pointer events (the variants set `disabled:pointer-events-none`), so a
+        disabled control can never be its own trigger. `tabIndex` keeps the
+        explanation reachable without a mouse, since the button itself has
+        dropped out of the tab order.
+
+        Note this leaves touch without the explanation — Radix tooltips do not
+        open on tap. That is why the cap also lives in the label, where every
+        input method can read it.
+      */}
+      <TooltipTrigger asChild>
+        <span tabIndex={0}>{button}</span>
+      </TooltipTrigger>
+      <TooltipContent>You get one redo per matchup.</TooltipContent>
+    </Tooltip>
+  )
+}
+
 /** `{ variantId: rating }`, the shape `computeElo` seeds from. */
 function ratingsById(aggregate: EloAggregate): Record<string, number> {
   return Object.fromEntries(
@@ -272,6 +343,12 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
   // either by finishing a run or by skipping straight there.
   const [phase, setPhase] = useState<'intro' | 'playing' | 'results'>('intro')
   const [myMatches, setMyMatches] = useState<MatchInput[]>([])
+  // Keyed by round rather than a boolean that resets as the round advances:
+  // `round` only ever moves forward, so this needs clearing in exactly one
+  // place (`restart`), with no second reset site to forget later.
+  const [redoneRounds, setRedoneRounds] = useState<ReadonlySet<number>>(
+    new Set(),
+  )
 
   // Enabled from mount, not just at the end, so we can capture the standings as
   // they were BEFORE this run. Nothing renders it until `phase` is 'results',
@@ -303,6 +380,7 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
   }, [stage])
 
   const matchup = plan[round]
+  const redosLeft = REDOS_PER_MATCHUP - (redoneRounds.has(round) ? 1 : 0)
 
   /**
    * Start a fresh run from the standings screen.
@@ -316,8 +394,30 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
     setRound(0)
     setStage('idle')
     setMyMatches([])
+    setRedoneRounds(new Set())
     setSnapshot(aggregate.data ? ratingsById(aggregate.data) : undefined)
     setPhase('playing')
+  }
+
+  /**
+   * Replay the current matchup from the top.
+   *
+   * Deliberately the SAME `plan[round]` — same variants, same order, same
+   * durations, same seed. Re-rolling any of that is what would make a redo
+   * worth gaming, and the durations in particular are what `computeElo`'s
+   * handicap corrects for, so the recorded match has to describe what was
+   * actually watched.
+   *
+   * Goes back to 'idle' rather than straight to 'first': the whole point is
+   * that attention had wandered, so the participant chooses when it restarts.
+   * That also remounts the canvas, which matters — `useTimedProgress` does not
+   * reset its progress when merely re-run, so a redo that kept the canvas
+   * mounted would sit on the previous pass's end state until the first frame.
+   */
+  const redo = () => {
+    if (stage !== 'voting' || redosLeft === 0 || recordMatch.isPending) return
+    setRedoneRounds((prev) => new Set(prev).add(round))
+    setStage('idle')
   }
 
   const vote = (outcome: MatchOutcome) => {
@@ -332,6 +432,10 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
       durationAMs: matchup.durationAMs,
       durationBMs: matchup.durationBMs,
       outcome,
+      // Recorded on the vote rather than as its own row: a redo produces no
+      // judgement of its own, it just changes how the one judgement was
+      // arrived at.
+      redone: redoneRounds.has(round),
     }
     recordMatch.mutate(input, {
       onSuccess: () => {
@@ -465,32 +569,40 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
     <Card>
       <CardHeader className="gap-3">
         {/*
-          Question left, which-of-the-two centred, count right. Three columns
-          rather than a flex row because the two 1fr sides are equal by
-          construction, so the middle badge sits on the card's centre line
-          rather than wherever the other two leave it.
+          Count left, which-of-the-two centred. Three columns rather than a flex
+          row because the two 1fr sides are equal by construction, so the middle
+          label sits on the card's centre line rather than wherever the count
+          leaves it — which is why the third cell is empty rather than absent.
 
-          The stage badge renders in every stage and merely goes `invisible`
+          No question here any more: the vote prompt below the animations asks
+          it, right where it is answered, and asking twice on one card only made
+          the header compete with the thing being watched.
+
+          The stage label renders in every stage and merely goes `invisible`
           between them, with a `min-w` wide enough for the longer of its two
-          strings. Both of those exist so the column never changes width: it
-          used to sit in a fixed-height row below, reserving its space the same
-          way, and without the reserve the title and count would twitch sideways
-          each time a run started or the second variant came up.
+          strings. Both exist so the column never changes width — without the
+          reserve, the count would twitch sideways each time a run started or
+          the second variant came up.
         */}
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-          <CardTitle className="min-w-0">Which felt faster?</CardTitle>
-          <Badge
-            variant="secondary"
+          <Badge variant="secondary" className="justify-self-start">
+            Matchup {round + 1} of {plan.length}
+          </Badge>
+          {/*
+            Plain text rather than a second pill: two badges side by side read
+            as two things of equal weight, and this one is a running commentary
+            on the animation, not a fact about the run. Styled like the recap
+            panels' "First"/"Second", which name the same two positions.
+          */}
+          <p
             className={cn(
-              'min-w-24',
+              'min-w-24 text-center text-xs font-medium text-muted-foreground',
               (stage === 'idle' || stage === 'voting') && 'invisible',
             )}
           >
             {stage.startsWith('first') ? 'First of two' : 'Second of two'}
-          </Badge>
-          <Badge variant="secondary" className="justify-self-end">
-            Matchup {round + 1} of {plan.length}
-          </Badge>
+          </p>
+          <div />
         </div>
         <Progress value={(round / plan.length) * 100} />
       </CardHeader>
@@ -515,7 +627,12 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
             <div className={STIMULUS_CANVAS}>
               <div className="flex h-full items-center justify-center">
                 <Button type="button" onClick={() => setStage('first')}>
-                  Start matchup {round + 1}
+                  {/*
+                    "Replay" on a redone round. Without it a redo lands on a
+                    screen identical to the one before the matchup first played,
+                    and nothing confirms the press did anything.
+                  */}
+                  {redosLeft === 0 ? 'Replay' : 'Start'} matchup {round + 1}
                 </Button>
               </div>
             </div>
@@ -577,7 +694,20 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
         */}
         {stage === 'voting' && (
           <div className="space-y-3">
-            <p className="text-sm font-medium">{experiment.metricLabel}</p>
+            {/*
+              The redo rides the prompt's line rather than taking a row of its
+              own. MATCHUP_AREA fixes the card's height, so a fourth row would
+              come straight out of the recap panels — and below `sm` those two
+              already split one short frame between them.
+            */}
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium">{experiment.metricLabel}</p>
+              <RedoButton
+                redosLeft={redosLeft}
+                disabled={redosLeft === 0 || recordMatch.isPending}
+                onRedo={redo}
+              />
+            </div>
             <div className="grid gap-2 sm:grid-cols-3">
               <Button
                 type="button"

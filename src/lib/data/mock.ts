@@ -168,6 +168,8 @@ function baselineMatches(experiment: Experiment): MatchInput[] {
         durationAMs,
         durationBMs,
         outcome,
+        // Synthetic history has no redos to record — nobody watched it.
+        redone: false,
       })
     }
   }

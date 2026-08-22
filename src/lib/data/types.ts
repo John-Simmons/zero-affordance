@@ -184,6 +184,20 @@ export interface MatchInput {
   durationAMs: number
   durationBMs: number
   outcome: MatchOutcome
+  /**
+   * Whether this matchup was replayed before the vote was cast.
+   *
+   * Analysis only — nothing in `computeElo` reads it. It is here because a
+   * judgement made on a second viewing is a different kind of observation from
+   * one made on a first, and that distinction is unrecoverable after the fact:
+   * matches are append-only, so a run that did not record it cannot be
+   * re-annotated later.
+   *
+   * A boolean rather than a count because the runner caps redos at one per
+   * matchup (`REDOS_PER_MATCHUP`). Raising that cap means widening this to a
+   * count, and a migration.
+   */
+  redone: boolean
 }
 
 export interface EloRating {

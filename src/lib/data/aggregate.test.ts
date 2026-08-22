@@ -48,6 +48,7 @@ function match(over: Partial<MatchInput> = {}): MatchInput {
     durationAMs: 1500,
     durationBMs: 1500,
     outcome: 'a',
+    redone: false,
     ...over,
   }
 }

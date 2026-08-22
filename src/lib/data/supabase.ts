@@ -87,6 +87,7 @@ interface MatchRow {
   duration_a_ms: number
   duration_b_ms: number
   outcome: MatchOutcome
+  redone: boolean
 }
 
 function mapQuestion(row: QuestionRow): SurveyQuestion {
@@ -255,7 +256,7 @@ export function createSupabaseProvider(
     const { data, error } = await client
       .from('experiment_matches')
       .select(
-        'variant_a_id, variant_b_id, duration_a_ms, duration_b_ms, outcome',
+        'variant_a_id, variant_b_id, duration_a_ms, duration_b_ms, outcome, redone',
       )
       .eq('experiment_id', experiment.id)
       // Load-bearing, not cosmetic: Elo is path-dependent, so an unordered
@@ -273,6 +274,9 @@ export function createSupabaseProvider(
       durationAMs: m.duration_a_ms,
       durationBMs: m.duration_b_ms,
       outcome: m.outcome,
+      // Selected even though Elo ignores it, so the replayed matches are the
+      // rows as recorded rather than rows with one field quietly invented.
+      redone: m.redone,
     }))
   }
 
@@ -388,6 +392,7 @@ export function createSupabaseProvider(
         duration_a_ms: input.durationAMs,
         duration_b_ms: input.durationBMs,
         outcome: input.outcome,
+        redone: input.redone,
       })
       if (error) throw error
     },

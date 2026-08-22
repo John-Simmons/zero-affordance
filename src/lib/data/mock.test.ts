@@ -66,6 +66,7 @@ describe('mock data provider', () => {
       durationAMs: 1500,
       durationBMs: 2000,
       outcome: 'a',
+      redone: false,
     })
 
     const after = await provider.getEloAggregate('exp_loading_perception')
@@ -82,6 +83,28 @@ describe('mock data provider', () => {
     }
   })
 
+  it('keeps the redo flag on the stored match', async () => {
+    // Nothing in the `DataProvider` surface reads a match back — Elo replays
+    // them and reports ratings — so the only way to check the flag survives is
+    // to look at what was written. It has to: matches are append-only, so a
+    // vote stored without it can never be annotated afterwards.
+    const provider = createMockProvider()
+    await provider.recordMatch({
+      experimentId: 'exp_loading_perception',
+      visitorId: 'test-visitor',
+      variantAId: 'quote',
+      variantBId: 'blank',
+      durationAMs: 1900,
+      durationBMs: 2200,
+      outcome: 'a',
+      redone: true,
+    })
+
+    const stored = JSON.parse(localStorage.getItem('za.mock.matches') ?? '[]')
+    expect(stored).toHaveLength(1)
+    expect(stored[0]).toMatchObject({ visitorId: 'test-visitor', redone: true })
+  })
+
   it('ends its Elo history on the standings it reports', async () => {
     // The two read one match log through one helper; this is what catches them
     // drifting apart and putting different answers one tab from each other.
@@ -94,6 +117,7 @@ describe('mock data provider', () => {
       durationAMs: 2100,
       durationBMs: 2400,
       outcome: 'b',
+      redone: false,
     })
 
     const agg = await provider.getEloAggregate('exp_loading_perception')
