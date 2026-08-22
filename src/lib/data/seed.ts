@@ -19,12 +19,14 @@ export const seedExperiments: Experiment[] = [
     slug: 'loading-perception',
     title: 'Which loading state feels faster?',
     description:
-      'The goal of this experiment is to determine if the type of animation shown while loading a webpage can affect the perceived duration of the loading time. This experiment uses six different loading animations and presents them in pairs, in a randomized order, until every combination has been presented. Your answers in this experiment will contribute to a global Elo score for each loading animation.',
+      'The goal of this experiment is to determine if the type of animation shown while loading a webpage can affect the perceived duration of the loading time. This experiment uses six different loading animations and presents them in pairs, in a randomized order, until every combination has been presented. Your answers in this experiment will contribute to a global score for each loading animation.',
     hypothesis:
       'Perceived duration depends on what a loading indicator shows, not just how long it runs.',
     kind: 'pairwise',
     // Not used by pairwise experiments (the outcome is a vote, not a scale),
-    // but `Experiment` requires them; metricLabel doubles as the vote prompt.
+    // but `Experiment` requires them. The runner asks its own question, in its
+    // own words — the prompt names the interaction ("click one below"), which
+    // is the screen's business and not a fact about the experiment.
     metricLabel: 'Which one felt faster?',
     metricMin: 0,
     metricMax: 0,

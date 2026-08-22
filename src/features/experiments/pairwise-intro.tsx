@@ -48,14 +48,18 @@ export function PairwiseIntro({
             brief, and the numbered list is the procedure. */}
         <p className="text-sm text-pretty">{experiment.description}</p>
 
+        <p className="text-sm text-pretty">Steps:</p>
+
         <div className="space-y-2 text-sm text-muted-foreground">
           <ol className="list-decimal space-y-1.5 pl-4">
             <li>Start the matchup.</li>
             <li>
-              Two loading states run back to back, each followed by the page it
-              was loading.
+              Two loading states run back to back for similar but different
+              amounts of time, each followed by placeholder webpage text.
             </li>
-            <li>Say which felt faster, or call it too close.</li>
+            <li>
+              Click the loading state that felt faster, or call it too close.
+            </li>
             <li>
               Repeat for all {pairCount} pairings, then see where everything
               ranks.
@@ -68,13 +72,6 @@ export function PairwiseIntro({
             than hiding, since a participant who noticed it unexplained would
             reasonably assume something was broken.
           */}
-          <p className="pt-1 text-xs">
-            Within a matchup both run for about the same length, nudged slightly
-            at random. That length changes from matchup to matchup, so there is
-            no fixed yardstick to measure against. The ranking corrects for
-            whatever difference is left, so simply being quicker is not enough
-            to win.
-          </p>
         </div>
 
         <div className="flex flex-wrap gap-3">
