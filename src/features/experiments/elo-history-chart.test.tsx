@@ -23,14 +23,14 @@ const history: EloHistory = {
 
 /**
  * happy-dom lays nothing out, so recharts' ResponsiveContainer measures 0x0 and
- * renders an empty box. Reporting a fixed size is what lets the axes, the
- * reference line and the legend exist to be asserted on at all.
+ * renders an empty box. Reporting a fixed size is what lets the axes and the
+ * reference line exist to be asserted on at all.
  *
  * It does not get as far as the line paths themselves — those need SVG geometry
  * happy-dom has no answer for — so nothing here asserts on the drawn marks. The
- * legend is the useful proxy: it is built from the `Line` elements' own keys and
- * resolved through the chart config, so it goes blank or falls back to raw ids
- * the moment those two disagree.
+ * palette is the useful proxy instead: the lines are stroked with
+ * `var(--color-<id>)`, and both the emitted stylesheet and the legend's
+ * swatches are checked against those same ids below.
  */
 beforeAll(() => {
   const size = { width: 640, height: 288 }
@@ -74,8 +74,9 @@ describe('EloHistoryChart', () => {
       />,
     )
     // The legend is what stops colour being the only thing telling six lines
-    // apart, so a config keyed off something the lines do not use would show
-    // nothing here — or raw ids like "classic_spinner".
+    // apart. It renders from the seeded variants, so what this pins is that
+    // every line gets a name — and a readable one, not a raw id like
+    // "classic_spinner".
     for (const v of experiment.variants) {
       expect(screen.getByText(v.label)).toBeInTheDocument()
     }
@@ -99,6 +100,22 @@ describe('EloHistoryChart', () => {
     expect(new Set(hexes).size).toBeGreaterThanOrEqual(
       experiment.variants.length,
     )
+
+    // The legend sits outside the chart and paints from the palette directly
+    // rather than from the `--color-<id>` variables, which exist only while the
+    // chart is mounted. Nothing structural ties the two together, so what has to
+    // be pinned is that they still agree line for line: the swatch beside a name
+    // is the colour that name's line is stroked with.
+    const swatches = [...container.querySelectorAll('li [style*="--swatch"]')]
+    expect(swatches).toHaveLength(experiment.variants.length)
+    experiment.variants.forEach((v, i) => {
+      const stroke = style.match(
+        new RegExp(`--color-${v.id}:\\s*(#[0-9a-f]{6})`),
+      )![1]
+      expect(swatches[i].getAttribute('style')).toContain(
+        `--swatch-light: ${stroke}`,
+      )
+    })
   })
 
   it('says so rather than drawing an empty axis with no matches', () => {
