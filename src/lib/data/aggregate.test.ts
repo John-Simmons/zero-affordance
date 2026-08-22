@@ -188,6 +188,28 @@ describe('computeElo', () => {
     expect(agg.totalMatches).toBe(3)
   })
 
+  it('counts each participant once however many matches they played', () => {
+    const agg = computeElo(experiment, [
+      match({ visitorId: 'v1' }),
+      match({ visitorId: 'v1', outcome: 'b' }),
+      match({ visitorId: 'v2', outcome: 'tie' }),
+    ])
+    expect(agg.totalParticipants).toBe(2)
+    expect(agg.totalMatches).toBe(3)
+  })
+
+  // The headcount is printed beside totalMatches, so the two have to be drawn
+  // from the same matches — a participant whose every match was skipped would
+  // otherwise show up in a scale claim the ratings never saw.
+  it('leaves out participants whose matches were all skipped', () => {
+    const agg = computeElo(experiment, [
+      match({ visitorId: 'v1' }),
+      match({ visitorId: 'ghost', variantAId: 'gone', variantBId: 'y' }),
+    ])
+    expect(agg.totalParticipants).toBe(1)
+    expect(agg.totalMatches).toBe(1)
+  })
+
   it('sorts ratings highest first', () => {
     const agg = computeElo(experiment, [
       match({ variantAId: 'x', variantBId: 'y', outcome: 'a' }),

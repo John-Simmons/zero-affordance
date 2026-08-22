@@ -399,7 +399,13 @@ export function createSupabaseProvider(
 
     async getEloAggregate(experimentId: string) {
       const exp = await loadExperiment(experimentId)
-      if (!exp) return { experimentId, totalMatches: 0, ratings: [] }
+      if (!exp)
+        return {
+          experimentId,
+          totalMatches: 0,
+          totalParticipants: 0,
+          ratings: [],
+        }
       return computeElo(exp, await loadMatches(exp))
     },
 

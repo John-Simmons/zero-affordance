@@ -310,7 +310,13 @@ export function createMockProvider(): DataProvider {
 
     async getEloAggregate(experimentId) {
       const exp = findExperiment(experimentId)
-      if (!exp) return { experimentId, totalMatches: 0, ratings: [] }
+      if (!exp)
+        return {
+          experimentId,
+          totalMatches: 0,
+          totalParticipants: 0,
+          ratings: [],
+        }
       return computeElo(exp, orderedMatches(exp))
     },
 

@@ -213,6 +213,14 @@ export interface EloRating {
 export interface EloAggregate {
   experimentId: string
   totalMatches: number
+  /**
+   * Distinct visitors behind `totalMatches`.
+   *
+   * Counted over the same matches the ratings were built from, so the two
+   * numbers always describe one dataset — a participant whose every match was
+   * skipped is not one of these.
+   */
+  totalParticipants: number
   /** Sorted by rating, highest first. */
   ratings: EloRating[]
 }

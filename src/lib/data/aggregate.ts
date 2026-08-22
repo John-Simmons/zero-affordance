@@ -319,15 +319,26 @@ export function computeElo(
   const byId = startingRatings(experiment, initialRatings)
 
   let totalMatches = 0
+  // Counted from the matches that actually applied rather than from `matches`,
+  // so the headcount can never claim participants the ratings never saw.
+  const participants = new Set<string>()
   for (const m of matches) {
-    if (applyMatch(byId, m)) totalMatches += 1
+    if (applyMatch(byId, m)) {
+      totalMatches += 1
+      participants.add(m.visitorId)
+    }
   }
 
   const ratings = [...byId.values()].sort(
     (x, y) => y.rating - x.rating || x.label.localeCompare(y.label),
   )
 
-  return { experimentId: experiment.id, totalMatches, ratings }
+  return {
+    experimentId: experiment.id,
+    totalMatches,
+    totalParticipants: participants.size,
+    ratings,
+  }
 }
 
 /**
