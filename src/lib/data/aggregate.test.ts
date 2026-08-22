@@ -8,6 +8,7 @@ import {
   computeElo,
   computeEloHistory,
   DURATION_JITTER_FRACTION,
+  matchVerdict,
   MAX_HISTORY_POINTS,
   rollMatchupDurations,
   roundRobinPairs,
@@ -425,6 +426,44 @@ describe('scoreAccuracy', () => {
       match({ ...aIsShorter, outcome: 'tie' }),
     ])
     expect(score).toEqual({ correct: 0, scored: 0, ties: 2 })
+  })
+})
+
+describe('matchVerdict', () => {
+  const aIsShorter = { durationAMs: 1200, durationBMs: 1900 }
+
+  it('names the shorter side correct, from either position', () => {
+    expect(matchVerdict(match({ ...aIsShorter, outcome: 'a' }))).toBe('correct')
+    expect(
+      matchVerdict(
+        match({ durationAMs: 1900, durationBMs: 1200, outcome: 'b' }),
+      ),
+    ).toBe('correct')
+  })
+
+  it('names the longer side wrong', () => {
+    expect(matchVerdict(match({ ...aIsShorter, outcome: 'b' }))).toBe('wrong')
+  })
+
+  it('keeps the two excluded cases apart', () => {
+    // Same grey chip on screen, different explanations inside it: one is a
+    // judgement the participant made, the other is an accident of the roll.
+    expect(matchVerdict(match({ ...aIsShorter, outcome: 'tie' }))).toBe(
+      'called-close',
+    )
+    expect(matchVerdict(match({ durationAMs: 1500, durationBMs: 1500 }))).toBe(
+      'no-shorter',
+    )
+  })
+
+  it('reads a tie as the vote it was, even when nothing separated the two', () => {
+    // Both exclusions apply at once. The vote is the more informative of the
+    // two, and it is the one the strip should explain.
+    expect(
+      matchVerdict(
+        match({ durationAMs: 1500, durationBMs: 1500, outcome: 'tie' }),
+      ),
+    ).toBe('called-close')
   })
 })
 

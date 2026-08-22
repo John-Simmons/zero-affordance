@@ -400,20 +400,48 @@ export interface AccuracyScore {
 }
 
 /**
+ * How one matchup came out, judged against the durations that actually ran.
+ *
+ * The two excluded cases stay distinct rather than collapsing into one
+ * `'excluded'`, because they are excluded for unrelated reasons and a reader
+ * shown the verdict is owed the right one: `called-close` is a judgement the
+ * participant made, `no-shorter` is an accident of the roll that left nothing
+ * to judge.
+ */
+export type MatchVerdict = 'correct' | 'wrong' | 'called-close' | 'no-shorter'
+
+/**
+ * Judge one matchup.
+ *
+ * "Too close to call" is `called-close` rather than wrong: the widest gap on
+ * offer is 16% of the base either way, close enough to the just-noticeable
+ * difference for waits this long that a tie is frequently the honest answer.
+ * Marking it would penalise the most defensible vote available.
+ *
+ * `no-shorter` is a matchup where both animations ran for exactly the same
+ * time — there was no shorter one to have picked. Not hypothetical: both sides
+ * jitter around a shared base and land on whole milliseconds, so a collision
+ * turns up in roughly one run in thirty.
+ */
+export function matchVerdict(m: MatchInput): MatchVerdict {
+  if (m.outcome === 'tie') return 'called-close'
+  if (m.durationAMs === m.durationBMs) return 'no-shorter'
+  const shorter = m.durationAMs < m.durationBMs ? 'a' : 'b'
+  return m.outcome === shorter ? 'correct' : 'wrong'
+}
+
+/**
  * Score a run against the durations that actually ran.
  *
- * "Too close to call" is excluded rather than marked wrong, denominator and
- * all: the widest gap on offer is 16% of the base either way, close enough to
- * the just-noticeable difference for waits this long that a tie is frequently
- * the honest answer. Marking it would penalise the most defensible vote
- * available.
+ * Both excluded verdicts leave `scored` alone, denominator and all — see
+ * `matchVerdict` for why each is excluded. Only `called-close` reaches `ties`:
+ * that count exists to back the on-screen note about tie votes, and quietly
+ * folding duration collisions into it would make that note a lie.
  *
- * Matchups where both animations ran for exactly the same time are excluded
- * too — there was no shorter one to have picked. Not hypothetical: both sides
- * jitter around a shared base and land on whole milliseconds, so a collision
- * turns up in roughly one run in thirty. They are deliberately NOT folded into
- * `ties`, because that count exists to back the on-screen note about tie votes,
- * and quietly inflating it would make that note a lie.
+ * A fold over `matchVerdict` rather than its own copy of the rules, because the
+ * results screen now draws a per-matchup strip from the same helper. Two
+ * implementations would eventually disagree, and a strip of chips contradicting
+ * the score directly above it is worse than either being wrong alone.
  */
 export function scoreAccuracy(matches: MatchInput[]): AccuracyScore {
   let correct = 0
@@ -421,15 +449,15 @@ export function scoreAccuracy(matches: MatchInput[]): AccuracyScore {
   let ties = 0
 
   for (const m of matches) {
-    if (m.outcome === 'tie') {
+    const verdict = matchVerdict(m)
+    if (verdict === 'called-close') {
       ties += 1
       continue
     }
-    if (m.durationAMs === m.durationBMs) continue
+    if (verdict === 'no-shorter') continue
 
     scored += 1
-    const shorter = m.durationAMs < m.durationBMs ? 'a' : 'b'
-    if (m.outcome === shorter) correct += 1
+    if (verdict === 'correct') correct += 1
   }
 
   return { correct, scored, ties }

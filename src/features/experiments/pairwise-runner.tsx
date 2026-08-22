@@ -498,7 +498,9 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
           got everything wrong. It needs no `aggregate`, so it renders straight
           away rather than behind the standings' loading skeleton.
         */}
-        {myMatches.length > 0 && <AccuracyScore matches={myMatches} />}
+        {myMatches.length > 0 && (
+          <AccuracyScore matches={myMatches} variants={experiment.variants} />
+        )}
 
         <Card>
           <CardHeader>
