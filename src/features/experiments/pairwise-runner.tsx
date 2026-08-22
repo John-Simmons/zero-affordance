@@ -20,6 +20,7 @@ import { IndicatorPreview } from '@/features/experiments/indicator-preview'
 import { loadingIndicators } from '@/features/experiments/indicators'
 import { LoadedContent } from '@/features/experiments/loaded-content'
 import { PairwiseIntro } from '@/features/experiments/pairwise-intro'
+import { SeriesSwatch } from '@/features/experiments/series-colors'
 import { useTimedProgress } from '@/features/experiments/use-timed-progress'
 import {
   computeElo,
@@ -203,11 +204,17 @@ function StimulusCanvas({
 }
 
 /**
- * A reminder of which indicator played when, shown while voting.
+ * One of the two answers: the indicator that played, and the target you click
+ * to vote for it.
  *
  * Renders the indicator itself at its end state, not the article it loaded —
  * the article is identical for every variant by design, so two copies of it
  * would be indistinguishable and anchor nothing.
+ *
+ * Being the vote is the point. Three buttons underneath made the participant
+ * translate "the one on the left" into "the first button" at the exact moment
+ * we want an unmediated judgement; here the thing being judged and the thing
+ * being pressed are the same object.
  *
  * The name is shown alongside because `blank` has, correctly, nothing to draw;
  * without it that panel would read as broken rather than as the control.
@@ -220,10 +227,14 @@ function RecapPanel({
   variant,
   position,
   seed,
+  disabled,
+  onVote,
 }: {
   variant: ExperimentVariant
   position: string
   seed: number
+  disabled: boolean
+  onVote: () => void
 }) {
   const Indicator = loadingIndicators[variant.id]
 
@@ -236,7 +247,26 @@ function RecapPanel({
     // of that, leaving 28px for the indicator itself. A skeleton rendered as a
     // single bar. Every pixel taken back here goes straight to the thing the
     // panel exists to show.
-    <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border bg-muted/40 p-2 sm:gap-4 sm:p-4">
+    //
+    // A bare <button> rather than `ui/button.tsx`, which is the one place in
+    // this feature that departs from shadcn-first. That component is sized and
+    // laid out as a control (`h-8`, `px-2.5`, a nowrap row); a panel that has
+    // to fill its grid cell and stack an indicator above a label would have to
+    // override all of it, and overriding six base utilities through `cn` is
+    // less honest than borrowing the one thing that genuinely applies — the
+    // system's focus ring, copied verbatim from `buttonVariants` so keyboard
+    // focus looks the same here as everywhere else.
+    //
+    // The visible text says "First · Classic spinner", which names the panel
+    // without saying what pressing it does, so the accessible name spells out
+    // the vote being cast.
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onVote}
+      aria-label={`${position} felt faster: ${variant.label}`}
+      className="flex h-full w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border bg-muted/40 p-2 transition-colors outline-none hover:border-foreground/30 hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-60 sm:gap-4 sm:p-4"
+    >
       {/*
         w-full because the panel is `items-center`, which leaves this box
         shrink-to-fit. Percentage-width children contribute nothing to intrinsic
@@ -265,7 +295,7 @@ function RecapPanel({
         </span>
         <p className="text-sm text-foreground">{variant.label}</p>
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -277,13 +307,22 @@ function RecapPanel({
  * disappearing, so the cap reads as a rule of the experiment instead of as a
  * control that vanished — and the count is in the label so the rule is legible
  * before you press it, not only after.
+ *
+ * On screen through the whole matchup, and merely insensitive until the vote.
+ * A control that appears at vote time is a control you have to notice and read
+ * at the one moment you are trying to recall two animations; sitting there
+ * inert the whole way through means it has already been read by the time it
+ * matters. `live` says it is now pressable, which below sm is also when it can
+ * afford its label — see the comment on the text.
  */
 function RedoButton({
   redosLeft,
+  live,
   disabled,
   onRedo,
 }: {
   redosLeft: number
+  live: boolean
   disabled: boolean
   onRedo: () => void
 }) {
@@ -294,9 +333,32 @@ function RedoButton({
       size="sm"
       disabled={disabled}
       onClick={onRedo}
+      // Fixed at every width, because the text below is not: on a phone the
+      // label collapses to the icon while the button is inert, and an icon on
+      // its own has no accessible name at all.
+      aria-label={`Redo matchup (${redosLeft} left)`}
     >
       <RotateCcw />
-      Redo matchup ({redosLeft} left)
+      {/*
+        Two trims, both for the phone header, which has ~311px to work with and
+        has to hold the count, the stage label and this.
+
+        While the button is inert, below sm, it is the icon alone: nothing here
+        is pressable yet, so the space belongs to "First of two", which is live
+        information about what is on screen. The label arrives when the button
+        does — an affordance that grows exactly when it becomes usable — and by
+        then the stage label has gone, so there is room for it.
+
+        The other trim is permanent: "Redo (1 left)" below sm, because "matchup"
+        is the word this control can afford to lose. It sits under a badge that
+        has just said Matchup 4 of 15, so there is nothing else it could be
+        redoing. The COUNT never goes — touch gets no tooltip (see below), so
+        the label is the only place the cap is legible before you press it.
+      */}
+      <span className={cn('hidden sm:inline', live && 'inline')}>
+        Redo<span className="hidden sm:inline"> matchup</span> ({redosLeft}{' '}
+        left)
+      </span>
     </Button>
   )
 
@@ -355,7 +417,7 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
   // which is reached either by playing or by explicitly skipping.
   const aggregate = useEloAggregate(experiment.id)
   // Its own query, not part of `aggregate`: it is only ever read on the results
-  // screen, and the chart it feeds sits behind a tab.
+  // screen, where the chart it feeds renders under the standings table.
   const history = useEloHistory(experiment.id)
 
   // Frozen on first arrival. Each vote invalidates the elo query, so this
@@ -421,8 +483,8 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
   }
 
   const vote = (outcome: MatchOutcome) => {
-    // Belt and braces: the buttons only render at 'voting', but a stray call
-    // here would record a match for a matchup nobody watched.
+    // Belt and braces: the panels and the tie link only render at 'voting', but
+    // a stray call here would record a match for a matchup nobody watched.
     if (stage !== 'voting' || recordMatch.isPending) return
     const input: MatchInput = {
       experimentId: experiment.id,
@@ -453,7 +515,7 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
         setRound((r) => r + 1)
         setStage('idle')
       },
-      // Buttons stay enabled so the vote can simply be retried.
+      // The panels go sensitive again so the vote can simply be retried.
       onError: () => toast.error('Could not record that vote. Try again.'),
     })
   }
@@ -521,13 +583,26 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
               // the `{Indicator && …}` guard above: a variant that somehow has
               // no match still gets a readable row.
               renderLabel={(r) => {
-                const variant = experiment.variants.find(
+                const i = experiment.variants.findIndex(
                   (v) => v.id === r.variantId,
                 )
-                return variant ? (
-                  <IndicatorPreview variant={variant} />
-                ) : (
-                  r.label
+                const variant = experiment.variants[i]
+                return (
+                  <span className="flex items-center gap-2">
+                    {/*
+                      The chart's key, repeated on the row it belongs to. The
+                      table and the chart are the same six loading states twice,
+                      and without this the only way across was matching labels
+                      by eye. Left of the name because that is the edge the eye
+                      runs down when it comes back up from the chart.
+
+                      Only for a variant the experiment still declares: the
+                      colour is its declared position, and there is no honest
+                      slot for a row the seed no longer has.
+                    */}
+                    {i >= 0 && <SeriesSwatch index={i} />}
+                    {variant ? <IndicatorPreview variant={variant} /> : r.label}
+                  </span>
                 )
               }}
               // Inverted for the same reason as `renderLabel`: the standings
@@ -571,22 +646,30 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
     <Card>
       <CardHeader className="gap-3">
         {/*
-          Count left, which-of-the-two centred. Three columns rather than a flex
-          row because the two 1fr sides are equal by construction, so the middle
-          label sits on the card's centre line rather than wherever the count
-          leaves it — which is why the third cell is empty rather than absent.
+          Count left, redo right, which-of-the-two centred. From sm the two 1fr
+          sides are equal by construction, so the middle label sits on the
+          card's centre line rather than wherever the count leaves it.
 
           No question here any more: the vote prompt below the animations asks
           it, right where it is answered, and asking twice on one card only made
           the header compete with the thing being watched.
 
-          The stage label renders in every stage and merely goes `invisible`
-          between them, with a `min-w` wide enough for the longer of its two
-          strings. Both exist so the column never changes width — without the
-          reserve, the count would twitch sideways each time a run started or
-          the second variant came up.
+          Everything here renders in every stage, so this row never grows: it
+          sits above a fixed-height content area, and anything appearing at vote
+          time would shove the whole card down at the exact moment the two
+          animations are being compared from memory. What changes between stages
+          is only whether a thing is sensitive — the redo — or blank — the stage
+          label, which has nothing to say before a run starts or after it ends.
+
+          Below sm all three have to share ~311px (a 375px screen, less the page
+          gutter and the card padding), which is why the phone gets two
+          concessions the desktop does not. The blank stage label collapses
+          rather than reserving its width, and the inert redo is icon-only; both
+          are sized by `RedoButton`'s and the label's own classes. The two
+          concessions never bite at once, because the label is blank exactly
+          when the redo comes alive.
         */}
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <div className="grid grid-cols-[1fr_auto_auto] items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
           <Badge variant="secondary" className="justify-self-start">
             Matchup {round + 1} of {plan.length}
           </Badge>
@@ -595,16 +678,34 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
             as two things of equal weight, and this one is a running commentary
             on the animation, not a fact about the run. Styled like the recap
             panels' "First"/"Second", which name the same two positions.
+
+            Blank between runs, and how it goes blank differs by width. From sm
+            it stays `invisible` inside a `min-w` reserve wide enough for the
+            longer of its two strings, so the centred column never changes size
+            as a run starts or the second variant comes up. Below sm it is
+            `hidden` instead: the reserve is 96px the phone does not have, and
+            the only thing that would move to claim it is the redo beside it,
+            which is right-anchored and stays put.
           */}
           <p
             className={cn(
-              'min-w-24 text-center text-xs font-medium text-muted-foreground',
-              (stage === 'idle' || stage === 'voting') && 'invisible',
+              'col-start-2 row-start-1 text-center text-xs font-medium text-muted-foreground sm:min-w-24',
+              (stage === 'idle' || stage === 'voting') &&
+                'hidden sm:invisible sm:block',
             )}
           >
             {stage.startsWith('first') ? 'First of two' : 'Second of two'}
           </p>
-          <div />
+          <div className="col-start-3 row-start-1 justify-self-end">
+            <RedoButton
+              redosLeft={redosLeft}
+              live={stage === 'voting'}
+              disabled={
+                stage !== 'voting' || redosLeft === 0 || recordMatch.isPending
+              }
+              onRedo={redo}
+            />
+          </div>
         </div>
         <Progress value={(round / plan.length) * 100} />
       </CardHeader>
@@ -620,6 +721,53 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
         that drift is what made the page jump before.
       */}
       <CardContent className={cn('flex flex-col gap-6', MATCHUP_AREA)}>
+        {/*
+          The prompt only, now that the two answers are the panels below it. It
+          appears with them rather than sitting there through the matchup: a
+          question you cannot yet answer reads as broken, and it would compete
+          with the animation being watched.
+
+          Appearing costs the frame some height rather than growing the card:
+          MATCHUP_AREA fixes the total, so the stimulus simply hands back the
+          space it borrowed during playback and nothing on the page moves.
+
+          Not `experiment.metricLabel`: that field names the metric for surfaces
+          that only report it, and half of this sentence is about how to work
+          this particular screen. Wiring an interaction instruction into a data
+          row would put it on the results header too.
+
+          The tie rides this line rather than taking a row below the panels.
+          MATCHUP_AREA is fixed, so a row there comes straight out of the recap
+          panels — already down to ~114px each below sm, where the height is
+          worth more than the tidier reading order. As a link, because this is
+          the answer you give when neither panel is the answer, and a third
+          button of equal weight is exactly what this change set out to remove.
+        */}
+        {stage === 'voting' && (
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <p className="text-sm font-medium">
+              Which loading state felt faster? Click on one below to vote.
+            </p>
+            {/*
+              px-0 so the words line up with the card's edges rather than
+              sitting a padding's width inside them. It matters below sm, where
+              this wraps onto its own line under the prompt: a link variant
+              draws no box, so its inherited horizontal padding read as the text
+              being indented from the sentence above it for no reason.
+            */}
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="px-0 text-muted-foreground"
+              disabled={recordMatch.isPending}
+              onClick={() => vote('tie')}
+            >
+              Too close to call
+            </Button>
+          </div>
+        )}
+
         {/* The frame. Identical for both variants in a matchup, which is what
             keeps footprint from becoming a second independent variable. */}
         <div className="min-h-0 flex-1">
@@ -675,69 +823,19 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
                 variant={matchup.a}
                 position="First"
                 seed={matchup.seed}
+                disabled={recordMatch.isPending}
+                onVote={() => vote('a')}
               />
               <RecapPanel
                 variant={matchup.b}
                 position="Second"
                 seed={matchup.seed}
+                disabled={recordMatch.isPending}
+                onVote={() => vote('b')}
               />
             </div>
           )}
         </div>
-
-        {/*
-          Only once both have run. Previously these sat here disabled for the
-          whole matchup, which read as broken rather than as not-yet-your-turn,
-          and put three dead controls next to the thing being watched.
-
-          Appearing here costs the frame some height rather than growing the
-          card: MATCHUP_AREA fixes the total, so the stimulus simply hands back
-          the space it borrowed during playback and nothing on the page moves.
-        */}
-        {stage === 'voting' && (
-          <div className="space-y-3">
-            {/*
-              The redo rides the prompt's line rather than taking a row of its
-              own. MATCHUP_AREA fixes the card's height, so a fourth row would
-              come straight out of the recap panels — and below `sm` those two
-              already split one short frame between them.
-            */}
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-medium">{experiment.metricLabel}</p>
-              <RedoButton
-                redosLeft={redosLeft}
-                disabled={redosLeft === 0 || recordMatch.isPending}
-                onRedo={redo}
-              />
-            </div>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={recordMatch.isPending}
-                onClick={() => vote('a')}
-              >
-                First felt faster
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={recordMatch.isPending}
-                onClick={() => vote('tie')}
-              >
-                Too close to call
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={recordMatch.isPending}
-                onClick={() => vote('b')}
-              >
-                Second felt faster
-              </Button>
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
   )

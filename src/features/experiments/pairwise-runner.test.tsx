@@ -80,40 +80,116 @@ function redoButton() {
   return screen.getByRole('button', { name: /redo matchup/i })
 }
 
-describe('PairwiseRunner redo', () => {
-  beforeEach(async () => {
-    vi.useFakeTimers({
-      toFake: [
-        'requestAnimationFrame',
-        'cancelAnimationFrame',
-        'performance',
-        'setTimeout',
-        'clearTimeout',
-      ],
-    })
-    __setDataProvider(provider)
-    recordMatch.mockClear()
+/**
+ * Both suites drive the same component from a cold mount, so the setup sits at
+ * file level rather than being copied into each `describe`.
+ */
+beforeEach(async () => {
+  vi.useFakeTimers({
+    toFake: [
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'performance',
+      'setTimeout',
+      'clearTimeout',
+    ],
+  })
+  __setDataProvider(provider)
+  recordMatch.mockClear()
+  recordMatch.mockImplementation(() => Promise.resolve())
 
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-    render(
-      // `TooltipProvider` mirrors `AppProviders`, which mounts it app-wide —
-      // Radix throws without one in scope, so the spent redo's tooltip needs it
-      // here too.
-      <QueryClientProvider client={client}>
-        <TooltipProvider>
-          <PairwiseRunner experiment={experiment} />
-        </TooltipProvider>
-      </QueryClientProvider>,
-    )
-    click(/start the experiment/i)
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  render(
+    // `TooltipProvider` mirrors `AppProviders`, which mounts it app-wide —
+    // Radix throws without one in scope, so the spent redo's tooltip needs it
+    // here too.
+    <QueryClientProvider client={client}>
+      <TooltipProvider>
+        <PairwiseRunner experiment={experiment} />
+      </TooltipProvider>
+    </QueryClientProvider>,
+  )
+  click(/start the experiment/i)
+  await advance(0)
+})
+
+afterEach(() => {
+  __setDataProvider(null)
+  vi.useRealTimers()
+})
+
+describe('PairwiseRunner voting', () => {
+  it('records the panel you click as the winner of that matchup', async () => {
+    await playToVote()
+
+    // The panels ARE the vote: the thing being judged and the thing being
+    // pressed are one object, so there is no button row to map them onto.
+    click(/first felt faster/i)
     await advance(0)
+    expect(recordMatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ outcome: 'a' }),
+    )
+
+    await playToVote()
+    click(/second felt faster/i)
+    await advance(0)
+    expect(recordMatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ outcome: 'b' }),
+    )
   })
 
-  afterEach(() => {
-    __setDataProvider(null)
-    vi.useRealTimers()
+  it('still takes the tie, which is not a third panel', async () => {
+    await playToVote()
+
+    click(/too close to call/i)
+    await advance(0)
+    expect(recordMatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ outcome: 'tie' }),
+    )
+  })
+
+  it('takes exactly one vote while that vote is in flight', async () => {
+    // Never resolves, so the mutation stays pending for the whole test. A
+    // second panel press here would append a second match for one matchup, and
+    // matches are append-only — there is no undoing it afterwards.
+    recordMatch.mockImplementation(() => new Promise<void>(() => {}))
+
+    await playToVote()
+    click(/first felt faster/i)
+    await advance(0)
+
+    expect(
+      screen.getByRole('button', { name: /first felt faster/i }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: /second felt faster/i }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: /too close to call/i }),
+    ).toBeDisabled()
+
+    expect(recordMatch).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('PairwiseRunner redo', () => {
+  it('is on screen from the start, and insensitive until the vote', async () => {
+    // Whether it is VISIBLE mid-run is a CSS question jsdom cannot answer — no
+    // stylesheet is loaded here. What this pins is the half that is behaviour:
+    // the control exists in every stage, and is only pressable in the one where
+    // pressing it means something.
+    expect(redoButton()).toBeDisabled()
+
+    click(/^(start|replay) matchup/i)
+    for (let i = 0; i < 20; i++) {
+      if (screen.queryByRole('button', { name: /first felt faster/i })) break
+      expect(redoButton()).toBeDisabled()
+      await advance(1000)
+    }
+
+    expect(redoButton()).toBeEnabled()
   })
 
   it('spends its one redo, then goes insensitive for that matchup', async () => {
