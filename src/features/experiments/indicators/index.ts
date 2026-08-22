@@ -29,8 +29,10 @@ import { SkeletonLoader } from '@/features/experiments/indicators/skeleton-loade
  * Ignoring either prop entirely is fine, and in `progress`'s case is itself the
  * variable under test: indeterminate indicators (spinner, shimmer) legitimately
  * convey no endpoint. Most indicators ignore `seed` too — do NOT add it to the
- * five that have no use for it. A function declaring fewer props is assignable
- * to this type, which is exactly why they need no changes.
+ * four that have no use for it. A function declaring fewer props is assignable
+ * to this type, which is exactly why they need no changes. The two that do use
+ * it use it differently: the quote picks its line from it, and the progress bar
+ * draws its uneven fill pace from it.
  */
 export type LoadingIndicator = (props: {
   progress: number

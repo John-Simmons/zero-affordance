@@ -169,4 +169,18 @@ describe('loadingIndicators', () => {
     expect(html('progress_bar', 0)).toContain('width: 0%')
     expect(html('progress_bar', 1)).toContain('width: 100%')
   })
+
+  it('fills the progress bar at a pace of its own per appearance', () => {
+    // The bar stalls and surges rather than filling evenly, and the pace comes
+    // from the seed so it differs between matchups — the curve itself is
+    // covered in fill-profile.test.ts; this pins that the component is wired to
+    // it at all, and would catch the bar being rendered off raw `progress`.
+    expect(html('progress_bar', 0.5, 2)).not.toEqual(
+      html('progress_bar', 0.5, 3),
+    )
+
+    // ...and is identical on a fresh mount with the same seed, which is what
+    // makes the vote-time recap show the bar that actually played.
+    expect(html('progress_bar', 0.5, 2)).toEqual(html('progress_bar', 0.5, 2))
+  })
 })
