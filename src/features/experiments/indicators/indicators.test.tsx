@@ -144,25 +144,30 @@ describe('loadingIndicators', () => {
     }
   })
 
-  it('cuts the cooking indicator into three equal acts', () => {
+  it('cuts the cooking indicator into two equal acts', () => {
     // The only variant whose progress signal is *which* scene is showing rather
     // than how full something is, so the boundaries are the signal itself. A
     // drifted split would still render and still advance — the DETERMINATE test
     // above would pass — while quietly showing a different stimulus than the
     // one the description promises.
-    const [pour, stir, bake] = [
-      [0, 0.32],
-      [0.34, 0.66],
-      [0.68, 1],
+    const [stir, bake] = [
+      [0, 0.49],
+      [0.51, 1],
     ].map((band) => band.map((p) => html('baking', p)))
 
     // Stable within an act: no scene change where there shouldn't be one.
-    expect(pour[0]).toBe(pour[1])
     expect(stir[0]).toBe(stir[1])
     expect(bake[0]).toBe(bake[1])
 
-    // ...and all three acts are genuinely different drawings.
-    expect(new Set([pour[0], stir[0], bake[0]]).size).toBe(3)
+    // ...and the two acts are genuinely different drawings.
+    expect(stir[0]).not.toBe(bake[0])
+
+    // The cut is at the half, not merely somewhere in the middle: the frame
+    // before it still stirs and the frame after it bakes. Bracketing it this
+    // tightly is what would catch a third act being added back without the
+    // schedule being re-read off SCENES.length.
+    expect(html('baking', 0.499)).toBe(stir[0])
+    expect(html('baking', 0.5)).toBe(bake[0])
   })
 
   it('fills the progress bar from empty to full', () => {

@@ -37,7 +37,7 @@ values
   ('classic_spinner', 'exp_loading_perception', 'Classic spinner', 'A rotating arc.', 0),
   ('progress_bar',    'exp_loading_perception', 'Progress bar', 'A determinate bar filling from 0% to 100%.', 1),
   ('skeleton',        'exp_loading_perception', 'Skeleton', 'Shimmering placeholders shaped like the content that is loading.', 2),
-  ('baking',          'exp_loading_perception', 'Cooking a meal', 'A multi-part cooking animation: pour, stir, then bake.', 3),
+  ('baking',          'exp_loading_perception', 'Cooking a meal', 'A multi-part cooking animation: stir, then bake.', 3),
   ('quote',           'exp_loading_perception', 'Quote', 'A randomized quote, with an animated ellipsis.', 4),
   ('blank',           'exp_loading_perception', 'Blank screen', 'Nothing at all — the control condition.', 5)
 on conflict (experiment_id, id) do nothing;

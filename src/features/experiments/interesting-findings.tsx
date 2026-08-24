@@ -75,6 +75,13 @@ function VariantName({
  * who wants to weigh it, and below {@link MIN_FINDING_SAMPLE} it says so in as
  * many words. Hiding thin findings would make the section quietly change shape
  * as the corpus grew, which is a worse kind of dishonest than a small number.
+ *
+ * The number in front of the question comes from a CSS counter on the list
+ * rather than from a prop. Half these findings render conditionally, so an
+ * index passed in would have to be counted by hand at every call site and
+ * would go wrong the first time a finding dropped out; the counter numbers
+ * whatever actually rendered. It also stays out of the accessible name, which
+ * is what we want — the ordinal is furniture, not part of the question.
  */
 function Finding({
   question,
@@ -87,8 +94,10 @@ function Finding({
   children: ReactNode
 }) {
   return (
-    <div className="space-y-1">
-      <dt className="text-sm font-medium text-pretty">{question}</dt>
+    <div className="space-y-1.5">
+      <dt className="text-base font-medium text-pretty [counter-increment:finding] before:mr-2 before:font-normal before:text-muted-foreground before:tabular-nums before:content-[counter(finding)_'.']">
+        {question}
+      </dt>
       <dd className="space-y-1 text-sm text-muted-foreground">
         {children}
         <p className="text-xs">
@@ -179,6 +188,15 @@ function FindingsBody({
 
   const { positionSplit, gapAccuracy, totalMatches } = insights
   const decisive = positionSplit.first + positionSplit.second
+  // The sentence names whichever slot actually leads, rather than always the
+  // second one: "46% of votes went to the second animation" makes a reader do
+  // the subtraction themselves to find out where the pull is. The bar below
+  // still draws both sides either way. A dead heat falls to the second slot,
+  // where the two numbers are the same number anyway.
+  const leadingSlot =
+    positionSplit.first > positionSplit.second
+      ? { name: 'first', votes: positionSplit.first }
+      : { name: 'second', votes: positionSplit.second }
 
   // Only a variant that has actually won while slower can answer this; one
   // that never has reports a mean of zero, which would otherwise sort as an
@@ -220,7 +238,7 @@ function FindingsBody({
         played, not just your run.
       </p>
 
-      <dl className="space-y-6">
+      <dl className="space-y-6 [counter-reset:finding]">
         {accuracySpread.visitors > 0 && (
           <Finding
             question="How much do individual scores vary between people?"
@@ -306,11 +324,11 @@ function FindingsBody({
         >
           <p>
             <strong className="font-semibold text-foreground tabular-nums">
-              {percent(positionSplit.second, decisive)}
+              {percent(leadingSlot.votes, decisive)}
             </strong>{' '}
-            of votes went to whichever animation played second. The runner
-            randomises which loading state lands in each slot, so anything off
-            50/50 here is the slot talking, not the animation.
+            of votes went to whichever animation played {leadingSlot.name}. The
+            runner randomises which loading state lands in each slot, so
+            anything off 50/50 here is the slot talking, not the animation.
           </p>
           {/*
             aria-hidden: it is the two numbers in the sentence above, drawn. A

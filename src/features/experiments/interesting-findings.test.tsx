@@ -235,6 +235,30 @@ describe('InterestingFindings', () => {
     ).toBeInTheDocument()
   })
 
+  it('names whichever slot the votes actually favored', () => {
+    // The fixture leans second, so the default rendering names the second slot.
+    renderFindings({ insights, isLoading: false, variants })
+    expect(
+      screen.getByText(/of votes went to whichever animation played second/),
+    ).toBeInTheDocument()
+
+    // Flipping the split has to flip the sentence: reporting the second slot's
+    // 46% here would leave the reader to work out where the pull actually is.
+    renderFindings({
+      insights: {
+        ...insights,
+        positionSplit: { first: 54, second: 46, ties: 20 },
+      },
+      isLoading: false,
+      variants,
+    })
+    const flipped = screen.getAllByText(
+      /of votes went to whichever animation played first/,
+    )
+    expect(flipped).toHaveLength(1)
+    expect(flipped[0]).toHaveTextContent('54%')
+  })
+
   it('says so when nobody has played yet', () => {
     renderFindings({
       insights: {
