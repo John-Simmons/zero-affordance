@@ -16,6 +16,7 @@ import { AccuracyScore } from '@/features/experiments/accuracy-score'
 import { EloHistoryChart } from '@/features/experiments/elo-history-chart'
 import { EloResults } from '@/features/experiments/elo-results'
 import { HypothesisCard } from '@/features/experiments/hypothesis-card'
+import { InterestingFindings } from '@/features/experiments/interesting-findings'
 import { IndicatorPreview } from '@/features/experiments/indicator-preview'
 import { loadingIndicators } from '@/features/experiments/indicators'
 import { LoadedContent } from '@/features/experiments/loaded-content'
@@ -31,6 +32,7 @@ import {
 import {
   useEloAggregate,
   useEloHistory,
+  useMatchInsights,
   useRecordMatch,
 } from '@/lib/data/hooks'
 import type {
@@ -276,8 +278,17 @@ function RecapPanel({
         min-h-0 + overflow-hidden is what keeps a full-frame indicator inside
         the panel — but it only bites because the grid pins the row height; see
         grid-rows there.
+
+        items-safe-center rather than a breakpoint. This was `items-start` below
+        sm and `items-center` above, which asked the screen width a question only
+        the indicator can answer: the panel is ~114px on a phone, so a 48px
+        spinner sat pinned to the top of an empty box with 66px under it, while
+        the quote and the cooking pan overflow that height and have to start at
+        the top or they lose their first line. One rule covers both — centre
+        what fits, top-align what doesn't — and it keeps covering them if an
+        indicator's size changes. See the utility in index.css.
       */}
-      <div className="flex min-h-0 w-full flex-1 items-start justify-center overflow-hidden sm:items-center">
+      <div className="flex min-h-0 w-full flex-1 items-safe-center justify-center overflow-hidden">
         {Indicator && <Indicator progress={1} seed={seed} />}
       </div>
       {/*
@@ -419,6 +430,9 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
   // Its own query, not part of `aggregate`: it is only ever read on the results
   // screen, where the chart it feeds renders under the standings table.
   const history = useEloHistory(experiment.id)
+  // The third read of the same match log. Enabled from mount like the other
+  // two, so the card is already answered by the time the run reaches it.
+  const insights = useMatchInsights(experiment.id)
 
   // Frozen on first arrival. Each vote invalidates the elo query, so this
   // refetches ten times during a run — without freezing, the baseline would
@@ -619,6 +633,22 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
           </CardContent>
         </Card>
 
+        {/*
+          Below the standings and above the hypothesis: it is a second reading
+          of the same global corpus, so it belongs with the table rather than
+          with the personal score, and the hypothesis stays last as the thing
+          all of it is evidence about.
+
+          Ungated, unlike `AccuracyScore`. Every finding is about the whole
+          experiment, so there is nothing here that needs the visitor to have
+          played.
+        */}
+        <InterestingFindings
+          insights={insights.data}
+          isLoading={insights.isLoading}
+          variants={experiment.variants}
+        />
+
         <HypothesisCard experiment={experiment} />
       </div>
     )
@@ -754,12 +784,20 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
               this wraps onto its own line under the prompt: a link variant
               draws no box, so its inherited horizontal padding read as the text
               being indented from the sentence above it for no reason.
+
+              ml-auto is what puts it on the right below sm. `justify-between`
+              only spreads items that share a line — once this wraps it is alone
+              on its own line and lands back at the left, directly under the
+              start of the prompt, where it read as a third line of that
+              sentence rather than as the control it is. From sm up the two do
+              share a line and the margin collapses to nothing, so this changes
+              only the wrapped case.
             */}
             <Button
               type="button"
               variant="link"
               size="sm"
-              className="px-0 text-muted-foreground"
+              className="ml-auto px-0 text-muted-foreground"
               disabled={recordMatch.isPending}
               onClick={() => vote('tie')}
             >

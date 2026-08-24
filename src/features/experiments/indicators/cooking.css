@@ -20,6 +20,15 @@
    their own clock while the *stage* is driven by `progress` — see the note in
    cooking-indicator.tsx.
 
+   Two shapes of loop in here, and the durations on the utilities depend on
+   which one a set is. `pour-jug`, `bake-body`, `bake-handle` and `bake-timer`
+   hold two mirrored beats — frame 50% is identical to frame 0%, so the loop is
+   already seamless at its halfway point — while `pour-stream` and `stir-spoon`
+   spend the whole loop on a single beat. The call sites time each set against
+   what a beat of it is worth on screen rather than by a single rule, so a new
+   set transcribed in here needs checking against its own 50% frame before it
+   is given a duration.
+
    The transforms are absolute viewBox coordinates, not offsets, so every
    animated element also needs `origin-top-left` (`transform-origin: 0 0`) on
    it. Without that the browser resolves the origin to the centre of the

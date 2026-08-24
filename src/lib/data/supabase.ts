@@ -17,6 +17,8 @@ import {
   aggregateSurvey,
   computeElo,
   computeEloHistory,
+  computeMatchInsights,
+  emptyMatchInsights,
 } from '@/lib/data/aggregate'
 import { normalizeIdea } from '@/lib/data/ideas'
 import type { DataProvider, Unsubscribe } from '@/lib/data/provider'
@@ -82,6 +84,7 @@ interface VideoIdeaRow {
   created_at: string
 }
 interface MatchRow {
+  visitor_id: string
   variant_a_id: string
   variant_b_id: string
   duration_a_ms: number
@@ -256,7 +259,7 @@ export function createSupabaseProvider(
     const { data, error } = await client
       .from('experiment_matches')
       .select(
-        'variant_a_id, variant_b_id, duration_a_ms, duration_b_ms, outcome, redone',
+        'visitor_id, variant_a_id, variant_b_id, duration_a_ms, duration_b_ms, outcome, redone',
       )
       .eq('experiment_id', experiment.id)
       // Load-bearing, not cosmetic: Elo is path-dependent, so an unordered
@@ -268,7 +271,12 @@ export function createSupabaseProvider(
     if (error) throw error
     return (data ?? []).map((m) => ({
       experimentId: experiment.id,
-      visitorId: '',
+      // Selected, not stubbed. It was `''` for every row, which cost the
+      // standings their participant count (one empty string is one visitor,
+      // however many people voted) and made every per-person finding
+      // impossible to compute — see `computeMatchInsights`. The column is an
+      // anonymous per-browser id and RLS already allows reading it.
+      visitorId: m.visitor_id,
       variantAId: m.variant_a_id,
       variantBId: m.variant_b_id,
       durationAMs: m.duration_a_ms,
@@ -413,6 +421,14 @@ export function createSupabaseProvider(
       const exp = await loadExperiment(experimentId)
       if (!exp) return { experimentId, totalMatches: 0, points: [] }
       return computeEloHistory(exp, await loadMatches(exp))
+    },
+
+    async getMatchInsights(experimentId: string) {
+      const exp = await loadExperiment(experimentId)
+      if (!exp) return emptyMatchInsights(experimentId)
+      // `loadMatches` already selects every column these findings read, and
+      // orders rows the way the replay needs — nothing new to select.
+      return computeMatchInsights(exp, await loadMatches(exp))
     },
 
     subscribeToSurveyAggregate(surveyId: string, onChange): Unsubscribe {

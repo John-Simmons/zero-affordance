@@ -13,9 +13,10 @@ import type {
   ExperimentAggregate,
   ExperimentSummary,
   ExperimentVariant,
+  IdeaVoteResult,
   InteractionInput,
   MatchInput,
-  IdeaVoteResult,
+  MatchInsights,
   Survey,
   SurveyAggregate,
   SurveyResponseInput,
@@ -58,6 +59,15 @@ export interface DataProvider {
    * worse than no chart.
    */
   getEloHistory(experimentId: string): Promise<EloHistory>
+  /**
+   * The findings the standings cannot express — duration gaps overcome, the
+   * first-vs-second split, how big a gap has to be before people notice it.
+   *
+   * A third read of the same match log rather than extra fields on
+   * `getEloAggregate`: a run invalidates the standings on every one of its
+   * fifteen votes, and these answers are looked at once at the end.
+   */
+  getMatchInsights(experimentId: string): Promise<MatchInsights>
 
   // Video ideas
   /** Ordered by votes, then newest. `visitorId` only resolves `votedByVisitor`. */

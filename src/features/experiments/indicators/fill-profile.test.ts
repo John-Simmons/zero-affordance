@@ -76,19 +76,25 @@ describe('fill-profile', () => {
     // silently regressing to a constant rate — every other test here passes for
     // an evenly filling bar.
     //
-    // Measured on the ground actually covered in each eighth of the run rather
+    // Measured on the ground actually covered in each sixth of the run rather
     // than on the speeds behind it, because those are only the control points:
     // the ramping blends each toward its neighbours, so what a slice is worth
-    // on screen is not what it was drawn as.
+    // on screen is not what it was drawn as. Bucketed to match `SEGMENTS`:
+    // buckets that straddled slice boundaries would average a stall together
+    // with the surge beside it and understate both.
     //
-    // 3x, against a spread that runs from about 3.8x on the flattest of these
-    // seeds to 15x on the liveliest. A regression to linear scores 1x, and the
+    // 3x, against a spread that runs from about 3.3x on the flattest of these
+    // seeds to 8.8x on the liveliest. A regression to linear scores 1x, and the
     // correlated-hash bug this module was born with scored under 2x.
+    //
+    // The floor of that spread is `STALL_SPEED`'s doing, not luck: two of these
+    // fifteen seeds draw six near-average slices and would fill almost evenly
+    // without it, scoring about 1.6x.
     for (const seed of RUN_SEEDS) {
       const shares = Array.from(
-        { length: 8 },
+        { length: 6 },
         (_, i) =>
-          jitteredProgress((i + 1) / 8, seed) - jitteredProgress(i / 8, seed),
+          jitteredProgress((i + 1) / 6, seed) - jitteredProgress(i / 6, seed),
       )
       expect(Math.max(...shares) / Math.min(...shares)).toBeGreaterThan(3)
     }
@@ -101,7 +107,7 @@ describe('fill-profile', () => {
     //
     // The first version of this module interpolated position piecewise-linearly
     // and switched speed instantaneously at every slice boundary, scoring about
-    // 1.4 points. Ramping the speed instead brings it under 0.25.
+    // 1.4 points. Ramping the speed instead brings it under 0.2.
     for (const seed of RUN_SEEDS) {
       const deltas = frameDeltas(seed)
       const acceleration = deltas
@@ -116,8 +122,8 @@ describe('fill-profile', () => {
     // slow, and "looks broken" is a confound in an experiment about perceived
     // duration — so the opening slice is floored.
     for (const seed of RUN_SEEDS) {
-      // An eighth of the way in, comfortably clear of the floor's worst case.
-      expect(jitteredProgress(0.125, seed)).toBeGreaterThan(0.03)
+      // A sixth of the way in — one slice, the one the floor applies to.
+      expect(jitteredProgress(1 / 6, seed)).toBeGreaterThan(0.03)
     }
   })
 

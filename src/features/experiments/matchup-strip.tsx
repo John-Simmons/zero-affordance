@@ -27,27 +27,6 @@ const SM_UP = '(min-width: 40rem)'
 const OPEN_DELAY_MS = 150
 
 /**
- * Chips per group in the strip.
- *
- * A run of fifteen identical circles is a blob you have to count from one end,
- * and the whole point of the strip is that a chip's position tells you which
- * matchup it was. Groups make that position readable at a glance — third
- * group, second chip — and give the eye somewhere to rest between the greys.
- *
- * Three rather than five: a group of three is countable without counting, the
- * way a die face is, so the arithmetic disappears entirely.
- */
-const GROUP_SIZE = 3
-
-/** `[1,2,3,4,5,6]` → `[[1,2,3,4,5],[6]]`. */
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = []
-  for (let i = 0; i < items.length; i += size)
-    out.push(items.slice(i, i + size))
-  return out
-}
-
-/**
  * What each verdict looks like, says, and means.
  *
  * One table rather than three switches, so a chip's colour, its icon, its
@@ -186,7 +165,14 @@ function MatchupSide({
           {faster && ' · faster'}
         </span>
       </div>
-      <div className="flex h-20 w-full items-center justify-center overflow-hidden rounded-lg border bg-muted/40 p-3">
+      {/*
+        items-safe-center: 56px of content height is the tightest box any
+        indicator appears in, so the spinner and the bar want the middle of it
+        while the quote and the cooking pan are several times taller than it and
+        have to be clipped from the bottom — centring those cut the first line
+        off the quote. See the utility in index.css.
+      */}
+      <div className="flex h-20 w-full items-safe-center justify-center overflow-hidden rounded-lg border bg-muted/40 p-3">
         {Indicator && <Indicator progress={1} seed={seed} />}
       </div>
     </div>
@@ -358,10 +344,15 @@ function MatchupChip({
  * which is the part worth looking at — being fooled by one indicator every time
  * and guessing throughout produce the same number and very different rows.
  *
- * Wraps rather than scrolls. Fifteen chips need ~570px and a phone has ~310px,
+ * Wraps rather than scrolls. Fifteen chips need ~580px and a phone has ~310px,
  * and a row that ran off the side would hide exactly the matchups at the end of
- * the run, when attention is most likely to have drifted. Grouping gives the
- * wrap something to break on: a line ends at a divider rather than mid-run.
+ * the run, when attention is most likely to have drifted.
+ *
+ * One even run of chips, with nothing marking off every third. The dividers
+ * made the strip read as a sequence of small scores to be tallied group by
+ * group, when what it is is one run in playback order — an even rhythm says
+ * that, and the hover cards number themselves ("Matchup 7") for anyone who
+ * needs to find a specific one.
  */
 export function MatchupStrip({
   matches,
@@ -371,56 +362,18 @@ export function MatchupStrip({
   variants: ExperimentVariant[]
 }) {
   return (
-    // gap-2 on both axes, not just gap-y: the column gap is what sits on the
-    // far side of a group's trailing dot, so without it the divider lands hard
-    // against the next group instead of between the two.
-    <div className="flex flex-wrap items-center gap-2">
-      {chunk(matches, GROUP_SIZE).map((group, g, groups) => (
-        <div key={g} className="flex items-center gap-2">
-          {group.map((match, i) => (
-            <MatchupChip
-              // Position IS the identity here: matches are append-only and
-              // this renders one finished run, so nothing reorders under the
-              // key.
-              key={i}
-              match={match}
-              index={g * GROUP_SIZE + i}
-              variants={variants}
-            />
-          ))}
-          {/*
-            Inside the group rather than between groups, so a wrap can only
-            ever leave the dot trailing a line — a divider stranded at the
-            START of one reads as a bullet against the chips under it.
-
-            That nesting is also why the centring is done in margins: the two
-            sides of the dot are measured by different boxes — the group's own
-            gap-2 on the left, the row's gap-2 on the right — so mx-1 is what
-            makes 12px of it either way.
-
-            aria-hidden because it is pure rhythm: the chips carry their own
-            position in their labels ("Matchup 7: …"), and a divider announced
-            between every third of them would be noise in the middle of the
-            one thing here worth listening to.
-          */}
-          <span
-            aria-hidden
-            className={cn(
-              'mx-1 size-1 shrink-0 rounded-full bg-muted-foreground/40',
-              /*
-                The last group keeps the dot's space but not its ink.
-
-                Equal-width groups wrap greedily into full lines, which is the
-                only way to guarantee the short line is the LAST one. Render
-                the final dot away entirely and that group is 20px narrower
-                than every other — exactly enough to slip up beside two of
-                them and leave the row above shorter than the row below it,
-                which on a phone is most of the strip.
-              */
-              g === groups.length - 1 && 'invisible',
-            )}
-          />
-        </div>
+    // One flat wrapping row: every chip the same distance from its neighbours,
+    // on both axes, whether or not a line break falls between them.
+    <div className="flex flex-wrap items-center gap-4">
+      {matches.map((match, i) => (
+        <MatchupChip
+          // Position IS the identity here: matches are append-only and this
+          // renders one finished run, so nothing reorders under the key.
+          key={i}
+          match={match}
+          index={i}
+          variants={variants}
+        />
       ))}
     </div>
   )

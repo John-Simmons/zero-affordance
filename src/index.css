@@ -139,6 +139,30 @@
   }
 }
 
+/* Centre a flex item, but fall back to the top when it does not fit.
+
+   The rule the loading indicators need in every box smaller than the stimulus
+   canvas: a spinner or a progress bar is a small object that should sit in the
+   middle of its frame, while a quote or a cooking pan is often taller than a
+   recap panel or a preview popover — and centring something taller than its box
+   overflows it at BOTH ends, so the first line of a quote is cut off and the
+   reader starts mid-sentence. `safe` alignment is exactly this rule: centre
+   while it fits, align to start the moment it would overflow. No per-indicator
+   table to keep in step with what each component actually renders.
+
+   Two declarations, not one. `safe` is comparatively recent; a browser that
+   does not know the keyword drops the second line and keeps the first, which
+   top-aligns everything — the same thing these boxes did below `sm` before this
+   existed, and the failure mode that never hides the start of anything.
+
+   A custom utility because Tailwind ships no `items-safe-*` (checked against
+   4.3.3), and an arbitrary property could not carry the fallback declaration.
+   --------------------------------------------------------------------------- */
+@utility items-safe-center {
+  align-items: start;
+  align-items: safe center;
+}
+
 /* ---------------------------------------------------------------------------
    Loading-indicator keyframes (src/features/experiments/indicators/).
    Referenced via arbitrary animation utilities, e.g.

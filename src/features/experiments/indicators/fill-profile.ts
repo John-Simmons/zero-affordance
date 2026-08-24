@@ -21,17 +21,22 @@ import { hashString } from '@/lib/visitor'
  * the eye reads as jerk. The first version of this file interpolated position
  * piecewise-linearly, which changes speed instantaneously at every slice
  * boundary — about 1.4 percentage points of acceleration in a single frame,
- * against 0.2 now.
+ * against 0.15 now.
  */
 
 /**
  * Equal slices of TIME the run is cut into, each given its own speed.
  *
- * Eight over the 1800–3600ms duration band is 225–450ms a slice: long enough
- * that a slow one reads as a pause rather than a stutter, short enough that a
- * run still contains several changes of pace.
+ * Six over the 1800–3600ms duration band is 300–600ms a slice: long enough that
+ * a slow one reads as a pause rather than a stutter, short enough that a run
+ * still contains several changes of pace.
+ *
+ * It was eight, at 225–450ms a slice, and the pace changed often enough to read
+ * as jarring rather than as a connection finding its rate. Fewer, longer slices
+ * also mean fewer draws per run, so a run is likelier to draw no slow slice at
+ * all — which is what `STALL_SPEED` is for.
  */
-const SEGMENTS = 8
+const SEGMENTS = 6
 
 /**
  * The speed band a slice is drawn from.
@@ -40,7 +45,7 @@ const SEGMENTS = 8
  * normalised below, so only relative sizes survive. That ratio is what makes a
  * slow slice read as a genuine stall next to a fast one rather than as a
  * slightly lazy bar. It is wider than the ratio that actually reaches the
- * screen (about 4–15x between the slowest and fastest slice of a run) because
+ * screen (about 3–9x between the slowest and fastest slice of a run) because
  * the ramping below deliberately blends each slice toward its neighbours.
  *
  * The floor is a crawl rather than a halt: at the bottom of the band the bar
@@ -63,6 +68,24 @@ const MAX_SPEED = 3
 const OPENING_SPEED = 1
 
 /**
+ * The fastest the run's SLOWEST slice may be, as a fraction of the band.
+ *
+ * The mirror of `OPENING_SPEED`, and load-bearing only because there are six
+ * slices rather than eight: with the squared draw below, a six-slice run has a
+ * real chance of drawing every slice near or above average, and it then fills
+ * at a near-constant rate — the exact failure this module exists to prevent.
+ * Capping whichever slice came out slowest guarantees every run has one visible
+ * pause in it.
+ *
+ * Only bites on the runs that need it. Most already draw something well under
+ * this, and for those the cap changes nothing at all.
+ *
+ * Applied to the body of the run rather than to the opening slice, which
+ * `OPENING_SPEED` has already floored for the opposite reason.
+ */
+const STALL_SPEED = 0.45
+
+/**
  * How much of the gap between two slices is spent changing speed.
  *
  * The rest is spent holding, so a stall is genuinely flat and a surge genuinely
@@ -76,11 +99,12 @@ const RAMP = 0.6
 /**
  * Resolution the speed curve is integrated at.
  *
- * 32 samples a slice is 256 over a run, comfortably finer than the ~160 frames
- * a run actually renders in, so the table is never the thing quantising the
- * motion. It is built once per appearance, not once per frame.
+ * 48 samples a slice is 288 over a run, comfortably finer than the 110–220
+ * frames a run actually renders in, so the table is never the thing quantising
+ * the motion. It is built once per appearance, not once per frame. It was 32,
+ * which cleared eight slices' worth of frames but not six.
  */
-const STEPS_PER_SEGMENT = 32
+const STEPS_PER_SEGMENT = 48
 
 /**
  * A draw in [0, 1) for slice `i` of appearance `s`.
@@ -121,16 +145,32 @@ function draw(s: number, i: number): number {
  * two burst. That is the shape a real transfer has; a uniform draw gives a bar
  * that merely wavers.
  *
+ * The two clamps are the run's guarantees, one at each end: it always moves off
+ * zero, and it always stalls somewhere after that. Both are applied to the
+ * drawn speeds rather than to the draws themselves, so a run that would have
+ * satisfied them on its own is left exactly as drawn.
+ *
  * Defensive about `seed` in the same spirit as `quoteFor` — every indicator is
  * expected to be total over nonsense input.
  */
 function speedProfile(seed: number): number[] {
   const s = Number.isFinite(seed) ? Math.trunc(seed) : 0
 
-  return Array.from({ length: SEGMENTS }, (_, i) => {
+  const speeds = Array.from({ length: SEGMENTS }, (_, i) => {
     const speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * draw(s, i) ** 2
     return i === 0 ? Math.max(speed, OPENING_SPEED) : speed
   })
+
+  // Whichever body slice came out slowest is the run's stall, so it is the one
+  // the cap applies to — capping any other would flatten the contrast instead
+  // of deepening it.
+  let slowest = 1
+  for (let i = 2; i < SEGMENTS; i++) {
+    if (speeds[i] < speeds[slowest]) slowest = i
+  }
+  speeds[slowest] = Math.min(speeds[slowest], STALL_SPEED)
+
+  return speeds
 }
 
 /**

@@ -32,7 +32,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useMediaQuery } from '@/hooks/use-media-query'
-import { K_FACTOR, START_RATING } from '@/lib/data/aggregate'
+import {
+  K_FACTOR,
+  MEAN_BASE_DURATION_MS,
+  perceivedMs,
+  START_RATING,
+} from '@/lib/data/aggregate'
 import type { EloAggregate, EloRating } from '@/lib/data/types'
 
 /** Tailwind's `sm`. Hand-kept — v4 has no JS config to read the value from. */
@@ -89,6 +94,67 @@ function RecordTip() {
       <TooltipContent>
         Wins–draws–losses across every matchup this loading state has appeared
         in.
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * The rating, in milliseconds.
+ *
+ * Every rating is measured against {@link START_RATING} rather than against the
+ * table's own average, and those are the same number by construction: each vote
+ * moves points from one side to the other, so the six ratings always sum to
+ * where they started and their mean never moves off 1500. Reading it as "versus
+ * the field" is therefore exactly right, and needs no second pass over the rows
+ * to work out what the field is.
+ *
+ * Rounded to 10ms. The conversion is a model estimate several steps removed
+ * from anything anyone timed, and printing it to the millisecond would dress it
+ * up as a measurement.
+ *
+ * The sign is spelled out for the same reason {@link RatingDelta} spells it
+ * out, but this column is deliberately uncoloured: the rows are sorted by the
+ * quantity it derives from, so a green top and a red bottom would be colouring
+ * in the sort order.
+ */
+function PerceivedSaving({ rating }: { rating: number }) {
+  const ms =
+    Math.round(perceivedMs(rating - START_RATING, MEAN_BASE_DURATION_MS) / 10) *
+    10
+
+  if (ms === 0) return <span className="text-muted-foreground">±0ms</span>
+  return (
+    <span className="text-muted-foreground">
+      {ms > 0 ? '+' : '−'}
+      {Math.abs(ms)}ms
+    </span>
+  )
+}
+
+/**
+ * Where the milliseconds come from.
+ *
+ * A tooltip like {@link RecordTip} rather than a popover like
+ * {@link EloExplainer}: this is a footnote on a derived column, not the
+ * question a ranking invites. The two numbers in it are read from the model's
+ * own constants, so retuning the handicap cannot leave this quoting a rate the
+ * ratings no longer use.
+ */
+function SavingTip() {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        className="cursor-pointer text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+        aria-label="How the milliseconds are worked out"
+      >
+        <Info aria-hidden className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipContent className="max-w-64">
+        The rating read back in real time: on a{' '}
+        {(MEAN_BASE_DURATION_MS / 1000).toFixed(1)}s wait, one point is worth
+        about {Math.round(perceivedMs(1, MEAN_BASE_DURATION_MS))}ms. Estimated
+        from the ratings against the field average, not timed directly.
       </TooltipContent>
     </Tooltip>
   )
@@ -244,43 +310,81 @@ export function EloResults({
   if (isLoading || !aggregate) return <Skeleton className="h-64 w-full" />
 
   /*
-    Capped rather than full-width. The card is max-w-4xl to give the stimulus
-    canvas room, but a handful of short columns stretched across that leaves the
-    unconstrained name column absorbing ~350px of empty space, pushing the rating
-    far from the label it belongs to.
-
-    Two thirds of the card rather than the half it was: half left the columns
-    tight enough that a long state name wrapped, and the table read as a narrow
-    inset rather than as the page's main answer.
-
-    A percentage rather than a fixed cap, so it stays two thirds at every width
-    the card takes — but only from sm up. Below that the card is ~310px and two
-    thirds of it is no table at all, so the phone keeps the full width it
-    already had.
+    Full width. It was capped at two thirds of the card, which was the right
+    answer when four short columns left the unconstrained name column absorbing
+    ~350px of empty space and pushing the rating away from the label it belongs
+    to. The milliseconds column is what closed that gap: five columns fill the
+    card without the name column having to swallow the slack.
 
     No overflow wrapper here — shadcn's Table already renders one.
 
-    Both numeric columns align left, against the convention for numbers, because
-    the rating carries a trailing delta. Right-aligned, the pair was aligned as a
-    unit, so a row ending "(±0)" and one ending "(−12)" put their ratings in
-    different places — lined up with neither each other nor the "Elo rating"
-    header. Aligned left, the rating leads the cell, so every rating and its
-    header start on one edge whatever follows them.
+    Widths in twelfths, summing to one, rather than fixed pixels on four
+    columns and nothing on the name. Auto layout hands every unclaimed pixel to
+    the one unconstrained column, so the name column used to absorb all the
+    slack the card had — the reason the table needed a cap to look right at all.
+    Sharing the width out in proportions means it scales with the card instead,
+    and the four data columns stay comparable to each other at every size.
+
+    Proportions, not `table-fixed`. Below sm the card is ~300px, one column is
+    dropped, and the name still has to fit "Classic spinner" beside its preview
+    icon; fixed layout would hold it to a third of that and wrap the names,
+    where auto layout treats these as the strong suggestion they should be and
+    gives a column more when its content genuinely needs it. It is also what
+    lets the four that remain on a phone spread back across the full width
+    rather than leaving the dropped column's twelfths as a gap.
+
+    Every numeric column aligns left, against the convention for numbers,
+    because the rating carries a trailing delta. Right-aligned, the pair was
+    aligned as a unit, so a row ending "(±0)" and one ending "(−12)" put their
+    ratings in different places — lined up with neither each other nor the "Elo
+    rating" header. Aligned left, the rating leads the cell, so every rating and
+    its header start on one edge whatever follows them.
   */
   const table = (
-    <Table className="mx-auto w-full sm:max-w-2/3">
+    <Table className="w-full">
       <TableHeader>
         <TableRow>
-          <TableHead className="w-10">#</TableHead>
-          <TableHead>Loading state</TableHead>
-          <TableHead className="w-28">Elo rating</TableHead>
+          <TableHead className="w-1/12">#</TableHead>
+          <TableHead className="w-4/12">Loading state</TableHead>
           {/*
-            w-24 rather than the w-20 the initials alone needed: `TableHead` is
-            whitespace-nowrap, so a column too narrow for its own header does
-            not wrap — it widens the table and takes the space from the name
-            column silently.
+            Beside the name rather than at the end of the row: this is the
+            column that says what the ranking is worth, and the numbers to its
+            right are how it was arrived at. A reader who stops after two
+            columns has the finding.
+
+            Kept on a phone, where W–D–L is the column that gives way instead.
+            Five columns do not fit ~300px and one of them has to go; this is
+            the one worth the space, and W–D–L is the one that already fails
+            there anyway — its header tip explains the initials, and Radix
+            tooltips do not open on tap.
+
+            Allowed to wrap below sm, against `TableHead`'s whitespace-nowrap.
+            A three-word header held on one line is ~100px of a ~300px table;
+            wrapped, it costs a line of height instead, which a phone has far
+            more of than width.
           */}
-          <TableHead className="w-24">
+          <TableHead className="w-3/12 whitespace-normal sm:whitespace-nowrap">
+            <span className="flex items-center gap-1.5">
+              Feels faster by
+              <SavingTip />
+            </span>
+          </TableHead>
+          {/* Wraps below sm for the same reason as the column before it. */}
+          <TableHead className="w-2/12 whitespace-normal sm:whitespace-nowrap">
+            Elo rating
+          </TableHead>
+          {/*
+            `TableHead` is whitespace-nowrap, so a column narrower than its own
+            header does not wrap — it widens the table and takes the space from
+            the name column silently. Two twelfths is comfortably clear of what
+            "W–D–L" plus its tip needs at every width the card takes.
+
+            Dropped below sm. It is the row's supporting detail rather than its
+            answer, and it is the one column whose header cannot be understood
+            on a phone at all — the tip that expands the initials needs a
+            pointer to open.
+          */}
+          <TableHead className="hidden w-2/12 sm:table-cell">
             <span className="flex items-center gap-1.5">
               W–D–L
               <RecordTip />
@@ -296,6 +400,9 @@ export function EloResults({
             </TableCell>
             <TableCell className="font-medium">
               {renderLabel ? renderLabel(r) : r.label}
+            </TableCell>
+            <TableCell className="tabular-nums">
+              <PerceivedSaving rating={r.rating} />
             </TableCell>
             <TableCell className="tabular-nums">
               {/*
@@ -316,7 +423,7 @@ export function EloResults({
                 </>
               )}
             </TableCell>
-            <TableCell className="text-muted-foreground tabular-nums">
+            <TableCell className="hidden text-muted-foreground tabular-nums sm:table-cell">
               {r.wins}–{r.ties}–{r.losses}
             </TableCell>
           </TableRow>

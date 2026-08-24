@@ -88,12 +88,15 @@ function PreviewStage({
   return (
     <div className={PREVIEW_CANVAS}>
       {/*
-        `items-center` is right for both shapes without branching. A full-frame
-        indicator is `h-full`, which resolves to the whole box and clips from
-        the bottom; a `size-12` spinner simply centres. Same geometry as
-        RecapPanel on desktop.
+        Centred where it fits, top-aligned where it doesn't — see the utility in
+        index.css. A full-frame indicator is `h-full`, which resolves to the
+        whole box and clips from the bottom, and a `size-12` spinner simply
+        centres; neither needs the fallback. The quote does: this box is 192px
+        of content height and a long line easily passes that, and plain
+        `items-center` overflowed it at both ends, so the preview opened partway
+        into the sentence. Same geometry as RecapPanel.
       */}
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full items-safe-center justify-center">
         {Indicator && <Indicator progress={progress} seed={seed} />}
       </div>
     </div>

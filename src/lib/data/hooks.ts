@@ -32,6 +32,8 @@ export const queryKeys = {
   eloAggregate: (experimentId: string) =>
     ['elo-aggregate', experimentId] as const,
   eloHistory: (experimentId: string) => ['elo-history', experimentId] as const,
+  matchInsights: (experimentId: string) =>
+    ['match-insights', experimentId] as const,
   // Keyed by visitor because `votedByVisitor` is part of the payload — two
   // browsers must not share a cache entry.
   videoIdeas: (visitorId: string) => ['video-ideas', visitorId] as const,
@@ -209,18 +211,53 @@ export function useEloHistory(experimentId: string | undefined) {
   return query
 }
 
+/**
+ * The findings that need the individual matchups back.
+ *
+ * Its own query for the same reason {@link useEloHistory} is: all three derive
+ * from one table, but this one is read once at the end of a run while the
+ * standings are invalidated fifteen times during it. It rides the same
+ * subscription, since there is only one table to watch.
+ */
+export function useMatchInsights(experimentId: string | undefined) {
+  const queryClient = useQueryClient()
+  const query = useQuery({
+    queryKey: queryKeys.matchInsights(experimentId ?? ''),
+    queryFn: () => getDataProvider().getMatchInsights(experimentId!),
+    enabled: Boolean(experimentId),
+  })
+
+  useEffect(() => {
+    if (!experimentId) return
+    const provider = getDataProvider()
+    const unsub = provider.subscribeToEloAggregate?.(experimentId, () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.matchInsights(experimentId),
+      })
+    })
+    return unsub
+  }, [experimentId, queryClient])
+
+  return query
+}
+
 export function useRecordMatch() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: MatchInput) => getDataProvider().recordMatch(input),
-    // Both derive from the same match log, so both go stale together. Missing
-    // the history here would leave the chart a vote behind the table.
+    // All three derive from the same match log, so all three go stale together.
+    // Missing the history here would leave the chart a vote behind the table,
+    // and missing the insights would have the findings answering from a corpus
+    // one matchup short of the one they name.
     onSuccess: (_data, input) => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.eloAggregate(input.experimentId),
       })
       void queryClient.invalidateQueries({
         queryKey: queryKeys.eloHistory(input.experimentId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.matchInsights(input.experimentId),
       })
     },
   })

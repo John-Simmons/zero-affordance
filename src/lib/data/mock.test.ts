@@ -130,6 +130,56 @@ describe('mock data provider', () => {
       expect(last.ratings[r.variantId]).toBe(r.rating)
   })
 
+  it('draws its findings from the same match log as the standings', async () => {
+    // Three reads of one log through three helpers. The count is the shared
+    // number: a findings card claiming a different corpus size from the table
+    // above it would be answering about a dataset nobody can see.
+    const provider = createMockProvider()
+    await provider.recordMatch({
+      experimentId: 'exp_loading_perception',
+      visitorId: 'test-visitor',
+      variantAId: 'quote',
+      variantBId: 'blank',
+      durationAMs: 2100,
+      durationBMs: 2400,
+      outcome: 'a',
+      redone: false,
+    })
+
+    const agg = await provider.getEloAggregate('exp_loading_perception')
+    const insights = await provider.getMatchInsights('exp_loading_perception')
+
+    expect(insights.totalMatches).toBe(agg.totalMatches)
+    expect(insights.handicaps).toHaveLength(agg.ratings.length)
+    // Every decisive vote lands in exactly one slot, and ties in neither.
+    const { first, second, ties } = insights.positionSplit
+    expect(first + second + ties).toBe(insights.totalMatches)
+    // The pairing just recorded has a row, from whichever side it was played.
+    expect(
+      insights.pairRecords.some(
+        (p) =>
+          (p.aId === 'blank' && p.bId === 'quote') ||
+          (p.aId === 'quote' && p.bId === 'blank'),
+      ),
+    ).toBe(true)
+  })
+
+  it('has no findings for an experiment it does not know', async () => {
+    const insights = await createMockProvider().getMatchInsights('nope')
+
+    // Asserted field by field rather than against a literal of the whole
+    // shape: this grows a field every time a finding is added, and a deep
+    // equality here would fail on every one of those for no reason.
+    expect(insights.experimentId).toBe('nope')
+    expect(insights.totalMatches).toBe(0)
+    expect(insights.handicaps).toEqual([])
+    expect(insights.pairRecords).toEqual([])
+    expect(insights.positionSplit).toEqual({ first: 0, second: 0, ties: 0 })
+    expect(insights.contradictions.triples).toBe(0)
+    expect(insights.accuracySpread.visitors).toBe(0)
+    expect(insights.replayAccuracy.replayed.scored).toBe(0)
+  })
+
   it('has no Elo history for an experiment it does not know', async () => {
     const history = await createMockProvider().getEloHistory('nope')
     expect(history).toEqual({

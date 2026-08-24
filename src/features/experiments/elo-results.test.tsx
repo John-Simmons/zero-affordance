@@ -70,9 +70,20 @@ describe('EloResults', () => {
       deltas: { skeleton: 12 },
       voteCount: 15,
     })
-    // Header and body must agree, or the columns shear.
-    expect(screen.getAllByRole('columnheader')).toHaveLength(4)
-    expect(screen.getAllByRole('cell')).toHaveLength(4)
+    // Header and body must agree, or the columns shear. Five: rank, name,
+    // rating, W–D–L, and the rating in milliseconds — the delta rides inside
+    // the rating cell rather than taking a column of its own, which is what
+    // this is pinning.
+    expect(screen.getAllByRole('columnheader')).toHaveLength(5)
+    expect(screen.getAllByRole('cell')).toHaveLength(5)
+  })
+
+  it('reads the rating back in milliseconds', () => {
+    renderResults({ aggregate, isLoading: false })
+    // 1520 is 20 points clear of the 1500 every variant started on, and the
+    // ratings are zero-sum, so 1500 is also the field average. 20 points on a
+    // 2.7s wait is 60ms.
+    expect(screen.getByText('+60ms')).toBeInTheDocument()
   })
 
   // The standings are complete without a second view, and nothing should be

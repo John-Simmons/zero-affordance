@@ -10,6 +10,8 @@ import {
   aggregateSurvey,
   computeElo,
   computeEloHistory,
+  computeMatchInsights,
+  emptyMatchInsights,
   rollMatchupDurations,
   roundRobinPairs,
 } from '@/lib/data/aggregate'
@@ -162,7 +164,13 @@ function baselineMatches(experiment: Experiment): MatchInput[] {
         margin > 0.06 ? 'a' : margin < -0.06 ? 'b' : 'tie'
       rows.push({
         experimentId: experiment.id,
-        visitorId: 'seed',
+        // One synthetic person per run, not one for all twelve. The baseline
+        // stands in for history, and history is people: with a single id the
+        // participant count read 1 however much of it there was, and every
+        // per-person finding — the spread of scores, how often someone
+        // contradicts themselves — had exactly one subject to describe.
+        // Nothing in the ratings reads this, so the standings are untouched.
+        visitorId: `seed-${run}`,
         variantAId: a.id,
         variantBId: b.id,
         durationAMs,
@@ -324,6 +332,14 @@ export function createMockProvider(): DataProvider {
       const exp = findExperiment(experimentId)
       if (!exp) return { experimentId, totalMatches: 0, points: [] }
       return computeEloHistory(exp, orderedMatches(exp))
+    },
+
+    async getMatchInsights(experimentId) {
+      const exp = findExperiment(experimentId)
+      if (!exp) return emptyMatchInsights(experimentId)
+      // The same ordered log the ratings are replayed from, which is what lets
+      // the findings quote a match count the standings agree with.
+      return computeMatchInsights(exp, orderedMatches(exp))
     },
 
     subscribeToSurveyAggregate(_surveyId, onChange) {

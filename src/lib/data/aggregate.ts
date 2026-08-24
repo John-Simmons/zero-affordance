@@ -11,9 +11,18 @@ import type {
   EloHistoryPoint,
   EloRating,
   Experiment,
+  AccuracyBucket,
+  AccuracySpread,
+  ContradictionStats,
   ExperimentAggregate,
+  GapAccuracyBucket,
+  HandicapRecord,
   InteractionInput,
   MatchInput,
+  MatchInsights,
+  PairRecord,
+  RedoRecord,
+  ReplayAccuracy,
   QuestionAggregate,
   Survey,
   SurveyAggregate,
@@ -165,6 +174,44 @@ export const DURATION_HANDICAP_FULL = 900
  */
 export const BASE_DURATION_MIN_MS = 1800
 export const BASE_DURATION_MAX_MS = 3600
+
+/**
+ * The middle of the duration band, as one number.
+ *
+ * The reference wait for anything that has to turn a relative quantity back
+ * into milliseconds — no matchup is guaranteed to run at it, but it is the
+ * length a typical one has.
+ */
+export const MEAN_BASE_DURATION_MS =
+  (BASE_DURATION_MIN_MS + BASE_DURATION_MAX_MS) / 2
+
+/**
+ * What a gap of `ratingPoints` is worth in real time, on a wait of
+ * `referenceDurationMs`.
+ *
+ * The inverse of the handicap, and that is the whole claim it makes. The model
+ * spots the longer side {@link DURATION_HANDICAP_FULL} points for a relative
+ * duration difference of 1.0, so a rating lead of D points is exactly cancelled
+ * by running `D / DURATION_HANDICAP_FULL` of the wait longer: put a variant D
+ * ahead against one that far behind on the clock and `expectedScore` returns a
+ * coin flip. That is what makes "this loading state is worth 150ms" a statement
+ * about the model rather than a metaphor about it.
+ *
+ * At the middle of the band it works out at about 3ms a point, but the
+ * reference is a parameter rather than baked in — the same rating gap buys more
+ * milliseconds on a longer wait, which is the whole reason the handicap is
+ * relative in the first place.
+ *
+ * Derived, not measured. Nobody timed a participant's sense of a wait; this is
+ * the ratings read back through the model that produced them, and it inherits
+ * every assumption in {@link DURATION_HANDICAP_FULL}.
+ */
+export function perceivedMs(
+  ratingPoints: number,
+  referenceDurationMs: number,
+): number {
+  return (ratingPoints / DURATION_HANDICAP_FULL) * referenceDurationMs
+}
 
 /**
  * How far each side may deviate from its matchup's base, as a fraction of it.
@@ -397,6 +444,352 @@ export function computeEloHistory(
     experimentId: experiment.id,
     totalMatches: counted.length,
     points,
+  }
+}
+
+/**
+ * Where the gap buckets in {@link computeMatchInsights} are cut, as fractions
+ * of a matchup's mean duration.
+ *
+ * Sized against the spread the runner can actually produce, not chosen round:
+ * both sides share one base and jitter by at most
+ * {@link DURATION_JITTER_FRACTION} either way, so a relative gap cannot exceed
+ * ~16% and most land nearer 6%. Cutting at 4% and 9% puts roughly a third of
+ * matchups in each bucket, which is what makes the three rates comparable.
+ *
+ * Edges are exclusive upper bounds; anything above the last one is the
+ * open-ended top bucket.
+ */
+export const GAP_BUCKET_EDGES = [0.04, 0.09]
+
+/**
+ * Matches a finding wants behind it before its number means much.
+ *
+ * Not enforced here — {@link computeMatchInsights} reports every count it has
+ * and the UI decides what to say about a thin one. It lives beside the
+ * computation because the threshold is a property of the statistic, not of the
+ * card that renders it.
+ */
+export const MIN_FINDING_SAMPLE = 20
+
+/**
+ * Marked matchups one person needs before their score is placed on the spread.
+ *
+ * A run is fifteen matchups, so this is a third of one — enough that a score is
+ * not one lucky guess, low enough to keep anyone who abandoned a run part way.
+ * Without a floor a visitor who judged a single matchup correctly would land on
+ * 100% and dent the shape of the whole distribution.
+ */
+export const MIN_SCORED_PER_VISITOR = 5
+
+/**
+ * Width of the bands individual scores are grouped into, in percentage points.
+ *
+ * Five bands over the range. Fewer hides the thing worth seeing — whether the
+ * distribution has one hump or two — and more spreads a few hundred people so
+ * thin that every band is noise.
+ */
+export const ACCURACY_BUCKET_WIDTH = 20
+
+/** `[a, b]` in a fixed order, so one pairing has one row however it was played. */
+function pairKey(x: string, y: string): [string, string] {
+  return x < y ? [x, y] : [y, x]
+}
+
+/**
+ * The findings for an experiment there is nothing to say about.
+ *
+ * Shared rather than written out in each adapter. Both of them need this for
+ * an id they do not recognise, and a literal in two files grows a field at a
+ * time until the two disagree about what "empty" is.
+ */
+export function emptyMatchInsights(experimentId: string): MatchInsights {
+  return computeMatchInsights(
+    {
+      id: experimentId,
+      slug: '',
+      title: '',
+      description: '',
+      hypothesis: '',
+      kind: 'pairwise',
+      metricLabel: '',
+      metricMin: 0,
+      metricMax: 0,
+      variants: [],
+    },
+    [],
+  )
+}
+
+/**
+ * The questions the standings cannot answer, from the same match log.
+ *
+ * Every finding here is a fold, so unlike {@link computeElo} the ORDER of
+ * `matches` does not change the answer. It still walks them through
+ * {@link applyMatch} rather than filtering them itself, because that function
+ * owns the definition of a match the experiment can be rated on — and
+ * `totalMatches` has to mean here exactly what it means in the standings
+ * printed above these findings.
+ */
+export function computeMatchInsights(
+  experiment: Experiment,
+  matches: MatchInput[],
+): MatchInsights {
+  const byId = startingRatings(experiment)
+
+  // Totals rather than running means: a mean of means would weight a variant's
+  // first win as heavily as its fiftieth.
+  const gaps = new Map<string, { wins: number; ms: number; relative: number }>(
+    experiment.variants.map((v) => [v.id, { wins: 0, ms: 0, relative: 0 }]),
+  )
+  const pairs = new Map<string, PairRecord>()
+  const redos = new Map<string, RedoRecord>(
+    experiment.variants.map((v) => [
+      v.id,
+      { variantId: v.id, label: v.label, replayed: 0, matches: 0 },
+    ]),
+  )
+  const replayAccuracy: ReplayAccuracy = {
+    replayed: { correct: 0, scored: 0 },
+    firstView: { correct: 0, scored: 0 },
+  }
+  /*
+    One entry per person: what they decided each pairing to be, and how their
+    own votes scored. Keyed by pairing rather than appended, so someone who
+    played twice contributes one opinion per pairing — their latest. Two runs
+    disagreeing with each other is a real thing to measure, but it is not the
+    thing this measures, and folding it in here would report it as a circular
+    triple it is not.
+  */
+  const visitors = new Map<
+    string,
+    { decided: Map<string, string>; correct: number; scored: number }
+  >()
+  const buckets: GapAccuracyBucket[] = [...GAP_BUCKET_EDGES, null].map(
+    (maxRelativeGap) => ({ maxRelativeGap, correct: 0, scored: 0 }),
+  )
+  const positionSplit = { first: 0, second: 0, ties: 0 }
+
+  let totalMatches = 0
+
+  for (const m of matches) {
+    if (!applyMatch(byId, m)) continue
+    totalMatches += 1
+
+    const visitor = visitors.get(m.visitorId) ?? {
+      decided: new Map<string, string>(),
+      correct: 0,
+      scored: 0,
+    }
+    visitors.set(m.visitorId, visitor)
+
+    for (const id of [m.variantAId, m.variantBId]) {
+      const redo = redos.get(id)!
+      redo.matches += 1
+      if (m.redone) redo.replayed += 1
+    }
+
+    // `matchVerdict` rather than a second comparison of the two durations, so
+    // every accuracy number on this screen — the participant's own score, the
+    // gap buckets, these two — is the same rule applied to different subsets.
+    const verdict = matchVerdict(m)
+    if (verdict === 'correct' || verdict === 'wrong') {
+      const bucket = m.redone
+        ? replayAccuracy.replayed
+        : replayAccuracy.firstView
+      bucket.scored += 1
+      visitor.scored += 1
+      if (verdict === 'correct') {
+        bucket.correct += 1
+        visitor.correct += 1
+      }
+    }
+
+    const mean = (m.durationAMs + m.durationBMs) / 2
+    const relativeGap =
+      mean > 0 ? Math.abs(m.durationAMs - m.durationBMs) / mean : 0
+
+    const [x, y] = pairKey(m.variantAId, m.variantBId)
+    const pair = pairs.get(`${x}:${y}`) ?? {
+      aId: x,
+      bId: y,
+      aWins: 0,
+      bWins: 0,
+      ties: 0,
+    }
+    pairs.set(`${x}:${y}`, pair)
+
+    if (m.outcome === 'tie') {
+      positionSplit.ties += 1
+      pair.ties += 1
+      // Every finding below asks something about a winner, and a tie names
+      // none. It is counted, not silently dropped, so the denominators the UI
+      // prints add back up to `totalMatches`.
+      continue
+    }
+
+    const wonA = m.outcome === 'a'
+    if (wonA) positionSplit.first += 1
+    else positionSplit.second += 1
+    if (wonA === (m.variantAId === x)) pair.aWins += 1
+    else pair.bWins += 1
+    visitor.decided.set(`${x}:${y}`, wonA ? m.variantAId : m.variantBId)
+
+    const winnerId = wonA ? m.variantAId : m.variantBId
+    const winnerMs = wonA ? m.durationAMs : m.durationBMs
+    const loserMs = wonA ? m.durationBMs : m.durationAMs
+    if (winnerMs > loserMs) {
+      const gap = gaps.get(winnerId)!
+      gap.wins += 1
+      gap.ms += winnerMs - loserMs
+      gap.relative += relativeGap
+    }
+
+    // A dead heat has no shorter side to have picked, so it belongs in no
+    // bucket — the same row `matchVerdict` calls `no-shorter`.
+    if (m.durationAMs !== m.durationBMs) {
+      const bucket =
+        buckets.find(
+          (b) => b.maxRelativeGap !== null && relativeGap < b.maxRelativeGap,
+        ) ?? buckets[buckets.length - 1]
+      bucket.scored += 1
+      if (winnerMs < loserMs) bucket.correct += 1
+    }
+  }
+
+  return {
+    experimentId: experiment.id,
+    totalMatches,
+    handicaps: [...gaps.entries()]
+      .map(([variantId, g]): HandicapRecord => {
+        const variant = experiment.variants.find((v) => v.id === variantId)!
+        return {
+          variantId,
+          label: variant.label,
+          wins: g.wins,
+          meanGapMs: g.wins === 0 ? 0 : g.ms / g.wins,
+          meanRelativeGap: g.wins === 0 ? 0 : g.relative / g.wins,
+        }
+      })
+      .sort(
+        (x, y) => y.meanGapMs - x.meanGapMs || x.label.localeCompare(y.label),
+      ),
+    positionSplit,
+    gapAccuracy: buckets,
+    pairRecords: [...pairs.values()].sort(
+      (x, y) => x.aId.localeCompare(y.aId) || x.bId.localeCompare(y.bId),
+    ),
+    replayAccuracy,
+    redos: [...redos.values()].sort(
+      (x, y) => replayRate(y) - replayRate(x) || x.label.localeCompare(y.label),
+    ),
+    contradictions: countContradictions(experiment, visitors),
+    accuracySpread: spreadOf(visitors),
+  }
+}
+
+/** Share of a variant's matchups that were replayed. Zero when it has none. */
+function replayRate(r: RedoRecord): number {
+  return r.matches === 0 ? 0 : r.replayed / r.matches
+}
+
+/**
+ * Circular triples, counted per person.
+ *
+ * A triple of three variants is transitive when the three results between them
+ * give one variant two wins, one variant one, and one variant none. Circular is
+ * the only other possibility: every variant with exactly one win. Counting wins
+ * is why this needs no case analysis of which way round the cycle runs.
+ *
+ * Only complete triples are counted — all three pairings decided by the same
+ * person — so a run with ties in it contributes its intact triples and no more.
+ */
+function countContradictions(
+  experiment: Experiment,
+  visitors: Map<string, { decided: Map<string, string> }>,
+): ContradictionStats {
+  const ids = experiment.variants.map((v) => v.id)
+  const stats: ContradictionStats = {
+    cyclic: 0,
+    triples: 0,
+    visitorsWithCycle: 0,
+    visitorsScored: 0,
+  }
+
+  for (const { decided } of visitors.values()) {
+    let scored = false
+    let cycled = false
+
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        for (let k = j + 1; k < ids.length; k++) {
+          const winners = [
+            [ids[i], ids[j]],
+            [ids[i], ids[k]],
+            [ids[j], ids[k]],
+          ].map(([x, y]) => decided.get(`${pairKey(x, y).join(':')}`))
+          if (winners.some((w) => w === undefined)) continue
+
+          scored = true
+          stats.triples += 1
+          const wins = new Map([
+            [ids[i], 0],
+            [ids[j], 0],
+            [ids[k], 0],
+          ])
+          for (const w of winners) wins.set(w!, (wins.get(w!) ?? 0) + 1)
+          if ([...wins.values()].every((n) => n === 1)) {
+            stats.cyclic += 1
+            cycled = true
+          }
+        }
+      }
+    }
+
+    if (scored) stats.visitorsScored += 1
+    if (cycled) stats.visitorsWithCycle += 1
+  }
+
+  return stats
+}
+
+/**
+ * Individual scores, grouped into bands.
+ *
+ * The bands are built from {@link ACCURACY_BUCKET_WIDTH} rather than written
+ * out, so the whole range is always covered and the top one always includes
+ * 100 — a distribution missing its best scores would be a quiet lie about the
+ * shape it exists to show.
+ */
+function spreadOf(
+  visitors: Map<string, { correct: number; scored: number }>,
+): AccuracySpread {
+  const percents = [...visitors.values()]
+    .filter((v) => v.scored >= MIN_SCORED_PER_VISITOR)
+    .map((v) => (v.correct / v.scored) * 100)
+    .sort((x, y) => x - y)
+
+  const buckets: AccuracyBucket[] = []
+  for (let min = 0; min < 100; min += ACCURACY_BUCKET_WIDTH) {
+    const max = min + ACCURACY_BUCKET_WIDTH
+    buckets.push({
+      minPercent: min,
+      maxPercent: max,
+      visitors: percents.filter((p) => p >= min && (p < max || max >= 100))
+        .length,
+    })
+  }
+
+  const mid = Math.floor(percents.length / 2)
+  return {
+    buckets,
+    medianPercent:
+      percents.length === 0
+        ? 0
+        : percents.length % 2 === 1
+          ? percents[mid]
+          : (percents[mid - 1] + percents[mid]) / 2,
+    visitors: percents.length,
   }
 }
 

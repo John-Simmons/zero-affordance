@@ -7,7 +7,9 @@ import {
   BASE_DURATION_MIN_MS,
   computeElo,
   computeEloHistory,
+  computeMatchInsights,
   DURATION_JITTER_FRACTION,
+  GAP_BUCKET_EDGES,
   matchVerdict,
   MAX_HISTORY_POINTS,
   rollMatchupDurations,
@@ -486,6 +488,257 @@ describe('matchVerdict', () => {
         match({ durationAMs: 1500, durationBMs: 1500, outcome: 'tie' }),
       ),
     ).toBe('called-close')
+  })
+})
+
+describe('computeMatchInsights', () => {
+  const insights = (matches: MatchInput[]) =>
+    computeMatchInsights(experiment, matches)
+  const handicapOf = (
+    result: ReturnType<typeof computeMatchInsights>,
+    id: string,
+  ) => result.handicaps.find((h) => h.variantId === id)!
+
+  it('averages the gap over wins taken while slower', () => {
+    const result = insights([
+      // x wins by 200ms of handicap, then by 400ms.
+      match({ durationAMs: 1700, durationBMs: 1500, outcome: 'a' }),
+      match({ durationAMs: 1900, durationBMs: 1500, outcome: 'a' }),
+      // A win while FASTER is not a gap overcome, and must not dilute the mean.
+      match({ durationAMs: 1400, durationBMs: 1500, outcome: 'a' }),
+    ])
+
+    expect(handicapOf(result, 'x')).toMatchObject({ wins: 2, meanGapMs: 300 })
+    expect(handicapOf(result, 'x').meanRelativeGap).toBeCloseTo(
+      (200 / 1600 + 400 / 1700) / 2,
+      10,
+    )
+    expect(handicapOf(result, 'y').wins).toBe(0)
+  })
+
+  it('splits votes by the slot played, not by the variant', () => {
+    const result = insights([
+      match({ variantAId: 'x', variantBId: 'y', outcome: 'a' }),
+      match({ variantAId: 'y', variantBId: 'x', outcome: 'a' }),
+      match({ outcome: 'b' }),
+      match({ outcome: 'tie' }),
+    ])
+
+    // Two votes for whatever went first, one for second — and the two firsts
+    // were different variants, which is the point of measuring the slot.
+    expect(result.positionSplit).toEqual({ first: 2, second: 1, ties: 1 })
+  })
+
+  it('buckets accuracy by relative gap, and drops dead heats', () => {
+    const [low, high] = GAP_BUCKET_EDGES
+    const gapped = (relative: number, outcome: MatchInput['outcome']) => {
+      // Two durations whose mean is 2000 and whose relative gap is `relative`.
+      const half = (relative * 2000) / 2
+      return match({
+        durationAMs: 2000 - half,
+        durationBMs: 2000 + half,
+        outcome,
+      })
+    }
+
+    const result = insights([
+      gapped(low / 2, 'a'), // under the first edge, correct (A is shorter)
+      gapped(low / 2, 'b'), // same bucket, wrong
+      gapped((low + high) / 2, 'a'), // middle bucket, correct
+      gapped(high * 2, 'b'), // top bucket, wrong
+      match({ durationAMs: 1500, durationBMs: 1500, outcome: 'a' }), // dead heat
+      match({ outcome: 'tie' }),
+    ])
+
+    expect(result.gapAccuracy).toEqual([
+      { maxRelativeGap: low, correct: 1, scored: 2 },
+      { maxRelativeGap: high, correct: 1, scored: 1 },
+      { maxRelativeGap: null, correct: 0, scored: 1 },
+    ])
+  })
+
+  it('keeps one record per pairing however it was played', () => {
+    const result = insights([
+      match({ variantAId: 'x', variantBId: 'y', outcome: 'a' }),
+      // The same pairing with the sides swapped: still x winning, and still one
+      // row — a pairing that split into two would halve every record it has.
+      match({ variantAId: 'y', variantBId: 'x', outcome: 'b' }),
+      match({ variantAId: 'y', variantBId: 'x', outcome: 'tie' }),
+    ])
+
+    expect(result.pairRecords).toEqual([
+      { aId: 'x', bId: 'y', aWins: 2, bWins: 0, ties: 1 },
+    ])
+  })
+
+  it('skips matches naming a variant the experiment no longer declares', () => {
+    // The same rule `computeElo` applies, so the two match counts can be
+    // printed beside each other without explaining a discrepancy.
+    const result = insights([
+      match({ variantBId: 'gone' }),
+      match({ variantAId: 'x', variantBId: 'x' }),
+      match(),
+    ])
+
+    expect(result.totalMatches).toBe(1)
+    expect(computeElo(experiment, [match()]).totalMatches).toBe(1)
+  })
+
+  it('splits accuracy by whether the matchup was replayed', () => {
+    const result = insights([
+      // Replayed: one read right, one wrong.
+      match({
+        durationAMs: 1400,
+        durationBMs: 1600,
+        outcome: 'a',
+        redone: true,
+      }),
+      match({
+        durationAMs: 1400,
+        durationBMs: 1600,
+        outcome: 'b',
+        redone: true,
+      }),
+      // First viewing: right.
+      match({ durationAMs: 1400, durationBMs: 1600, outcome: 'a' }),
+      // Neither half takes a matchup that could not be marked at all.
+      match({ outcome: 'tie', redone: true }),
+      match({ durationAMs: 1500, durationBMs: 1500, redone: true }),
+    ])
+
+    expect(result.replayAccuracy).toEqual({
+      replayed: { correct: 1, scored: 2 },
+      firstView: { correct: 1, scored: 1 },
+    })
+  })
+
+  it('credits a replay to both animations in the matchup', () => {
+    // A redo replays the pair, so the row cannot say which half was the
+    // forgettable one — counting it for only the winner would invent that.
+    const result = insights([
+      match({ variantAId: 'x', variantBId: 'y', redone: true }),
+      match({ variantAId: 'x', variantBId: 'z', redone: false }),
+    ])
+    const redoOf = (id: string) => result.redos.find((r) => r.variantId === id)!
+
+    expect(redoOf('x')).toMatchObject({ replayed: 1, matches: 2 })
+    expect(redoOf('y')).toMatchObject({ replayed: 1, matches: 1 })
+    expect(redoOf('z')).toMatchObject({ replayed: 0, matches: 1 })
+  })
+
+  it("finds the circle in one person's votes", () => {
+    // x > y, y > z, z > x. No ranking satisfies all three.
+    const result = insights([
+      match({ variantAId: 'x', variantBId: 'y', outcome: 'a' }),
+      match({ variantAId: 'y', variantBId: 'z', outcome: 'a' }),
+      match({ variantAId: 'z', variantBId: 'x', outcome: 'a' }),
+    ])
+
+    expect(result.contradictions).toEqual({
+      cyclic: 1,
+      triples: 1,
+      visitorsWithCycle: 1,
+      visitorsScored: 1,
+    })
+  })
+
+  it('leaves a consistent set of votes alone', () => {
+    const result = insights([
+      match({ variantAId: 'x', variantBId: 'y', outcome: 'a' }),
+      match({ variantAId: 'y', variantBId: 'z', outcome: 'a' }),
+      match({ variantAId: 'x', variantBId: 'z', outcome: 'a' }),
+    ])
+
+    expect(result.contradictions).toMatchObject({ cyclic: 0, triples: 1 })
+  })
+
+  it('never calls two people a contradiction between them', () => {
+    // The same three results as the circular case, split across three people.
+    // Nobody has contradicted themselves; the population merely disagrees,
+    // which is the ordinary state of the experiment rather than a finding.
+    const result = insights([
+      match({ variantAId: 'x', variantBId: 'y', outcome: 'a', visitorId: 'a' }),
+      match({ variantAId: 'y', variantBId: 'z', outcome: 'a', visitorId: 'b' }),
+      match({ variantAId: 'z', variantBId: 'x', outcome: 'a', visitorId: 'c' }),
+    ])
+
+    expect(result.contradictions).toMatchObject({
+      cyclic: 0,
+      triples: 0,
+      visitorsScored: 0,
+    })
+  })
+
+  it('needs all three pairings decided before a triple counts', () => {
+    const result = insights([
+      match({ variantAId: 'x', variantBId: 'y', outcome: 'a' }),
+      match({ variantAId: 'y', variantBId: 'z', outcome: 'a' }),
+      match({ variantAId: 'z', variantBId: 'x', outcome: 'tie' }),
+    ])
+
+    expect(result.contradictions.triples).toBe(0)
+  })
+
+  it('keeps one opinion per pairing per person', () => {
+    // Someone who plays twice contributes their latest view of a pairing.
+    // Folding both in would have their two runs contradict each other and be
+    // reported as a circular triple, which is a different thing entirely.
+    const result = insights([
+      match({ variantAId: 'x', variantBId: 'y', outcome: 'a' }),
+      match({ variantAId: 'x', variantBId: 'y', outcome: 'b' }),
+      match({ variantAId: 'y', variantBId: 'z', outcome: 'a' }),
+      match({ variantAId: 'x', variantBId: 'z', outcome: 'b' }),
+    ])
+
+    // Latest says y > x, and y > z, z > x — transitive, no circle.
+    expect(result.contradictions).toMatchObject({ cyclic: 0, triples: 1 })
+  })
+
+  it('places each person on the spread by their own score', () => {
+    const run = (visitorId: string, correct: number, wrong: number) => [
+      ...Array.from({ length: correct }, () =>
+        match({
+          visitorId,
+          durationAMs: 1400,
+          durationBMs: 1600,
+          outcome: 'a',
+        }),
+      ),
+      ...Array.from({ length: wrong }, () =>
+        match({
+          visitorId,
+          durationAMs: 1400,
+          durationBMs: 1600,
+          outcome: 'b',
+        }),
+      ),
+    ]
+
+    const result = insights([
+      ...run('low', 1, 9), // 10%
+      ...run('mid', 5, 5), // 50%
+      ...run('high', 10, 0), // 100%, and the top band has to include it
+      ...run('thin', 1, 0), // one matchup: below the floor, not placed
+    ])
+
+    expect(result.accuracySpread.visitors).toBe(3)
+    expect(result.accuracySpread.medianPercent).toBe(50)
+    expect(result.accuracySpread.buckets.map((b) => b.visitors)).toEqual([
+      1, 0, 1, 0, 1,
+    ])
+  })
+
+  it('reports zeroes rather than dividing by nothing', () => {
+    const result = insights([])
+
+    expect(result.totalMatches).toBe(0)
+    expect(result.positionSplit).toEqual({ first: 0, second: 0, ties: 0 })
+    expect(result.pairRecords).toEqual([])
+    // Every declared variant still gets a row, so the UI can name one without
+    // checking whether it exists.
+    expect(result.handicaps).toHaveLength(experiment.variants.length)
+    expect(result.handicaps.every((h) => h.meanGapMs === 0)).toBe(true)
+    expect(result.gapAccuracy.every((b) => b.scored === 0)).toBe(true)
   })
 })
 
