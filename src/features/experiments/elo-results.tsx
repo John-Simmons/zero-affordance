@@ -142,6 +142,9 @@ function PerceivedSaving({ rating }: { rating: number }) {
  * ratings no longer use.
  */
 function SavingTip() {
+  const wait = (MEAN_BASE_DURATION_MS / 1000).toFixed(1)
+  const perPoint = Math.round(perceivedMs(1, MEAN_BASE_DURATION_MS))
+
   return (
     <Tooltip>
       <TooltipTrigger
@@ -151,10 +154,9 @@ function SavingTip() {
         <Info aria-hidden className="size-3.5" />
       </TooltipTrigger>
       <TooltipContent className="max-w-64">
-        The rating read back in real time: on a{' '}
-        {(MEAN_BASE_DURATION_MS / 1000).toFixed(1)}s wait, one point is worth
-        about {Math.round(perceivedMs(1, MEAN_BASE_DURATION_MS))}ms. Estimated
-        from the ratings against the field average, not timed directly.
+        Estimated from the ratings against the field average, not timed
+        directly. The average load duration is {wait}s, with that as a baseline
+        each Elo point is worth about {perPoint}ms.
       </TooltipContent>
     </Tooltip>
   )
