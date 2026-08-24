@@ -7,15 +7,22 @@
  * components and hooks never change.
  */
 import type {
+  EloAggregate,
+  EloHistory,
   Experiment,
   ExperimentAggregate,
   ExperimentSummary,
   ExperimentVariant,
+  IdeaVoteResult,
   InteractionInput,
+  MatchInput,
+  MatchInsights,
   Survey,
   SurveyAggregate,
   SurveyResponseInput,
   SurveySummary,
+  VideoIdea,
+  VideoIdeaInput,
 } from '@/lib/data/types'
 
 /** Called when an aggregate changes (realtime). Returns an unsubscribe fn. */
@@ -39,6 +46,47 @@ export interface DataProvider {
   recordInteraction(input: InteractionInput): Promise<void>
   getExperimentAggregate(experimentId: string): Promise<ExperimentAggregate>
 
+  // Pairwise experiments
+  /** Append one head-to-head judgement. Rows are immutable. */
+  recordMatch(input: MatchInput): Promise<void>
+  /** Derive current Elo ratings by replaying every recorded match. */
+  getEloAggregate(experimentId: string): Promise<EloAggregate>
+  /**
+   * Ratings sampled along that same replay, for showing how they got there.
+   *
+   * Must read the same ordered matches `getEloAggregate` does — its last point
+   * is that method's answer, and a chart contradicting the table beside it is
+   * worse than no chart.
+   */
+  getEloHistory(experimentId: string): Promise<EloHistory>
+  /**
+   * The findings the standings cannot express — duration gaps overcome, the
+   * first-vs-second split, how big a gap has to be before people notice it.
+   *
+   * A third read of the same match log rather than extra fields on
+   * `getEloAggregate`: a run invalidates the standings on every one of its
+   * fifteen votes, and these answers are looked at once at the end.
+   */
+  getMatchInsights(experimentId: string): Promise<MatchInsights>
+
+  // Video ideas
+  /** Ordered by votes, then newest. `visitorId` only resolves `votedByVisitor`. */
+  listVideoIdeas(visitorId: string): Promise<VideoIdea[]>
+  /** Validates and trims via `normalizeIdea`; throws on anything out of bounds. */
+  createVideoIdea(input: VideoIdeaInput): Promise<VideoIdea>
+  /**
+   * Sets this visitor's single vote to `voted`, and reports the new state.
+   *
+   * Deliberately a set rather than a toggle: a toggle's outcome depends on how
+   * many times the call arrives, so one duplicated request silently undoes the
+   * vote. Calling this twice with the same `voted` is a no-op.
+   */
+  setIdeaVote(
+    ideaId: string,
+    visitorId: string,
+    voted: boolean,
+  ): Promise<IdeaVoteResult>
+
   /**
    * Optional realtime hook. Adapters that cannot stream may omit it; callers
    * must treat it as best-effort and fall back to refetching.
@@ -51,4 +99,10 @@ export interface DataProvider {
     experimentId: string,
     onChange: () => void,
   ): Unsubscribe
+  subscribeToEloAggregate?(
+    experimentId: string,
+    onChange: () => void,
+  ): Unsubscribe
+  /** Fires for new ideas, vote changes, and moderation removals alike. */
+  subscribeToVideoIdeas?(onChange: () => void): Unsubscribe
 }

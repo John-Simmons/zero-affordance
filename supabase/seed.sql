@@ -1,62 +1,43 @@
--- Seed content — mirrors src/lib/data/seed.ts so the Supabase-backed app shows
--- the same starter survey and experiment as the local mock.
-
-insert into public.surveys (id, slug, title, description, position) values
-  (
-    'srv_tech_habits',
-    'technology-habits',
-    'How do you really use your devices?',
-    'A quick self-report on the small interactions that shape your day. Results update live as others respond.',
-    0
-  )
-on conflict (id) do nothing;
-
-insert into public.survey_questions
-  (id, survey_id, prompt, type, required, min, max, min_label, max_label, options, position)
-values
-  (
-    'q_notifications', 'srv_tech_habits',
-    'How do notifications on your phone usually make you feel?',
-    'single_choice', true, null, null, null, null,
-    '[{"id":"calm","label":"Mostly calm — I control them"},{"id":"neutral","label":"Neutral / I barely notice"},{"id":"anxious","label":"A little anxious or pulled-at"},{"id":"overwhelmed","label":"Often overwhelmed"}]'::jsonb,
-    0
-  ),
-  (
-    'q_friction', 'srv_tech_habits',
-    'Which of these everyday frictions have you hit this week? (pick any)',
-    'multiple_choice', false, null, null, null, null,
-    '[{"id":"cookie","label":"Fighting a cookie banner"},{"id":"unsub","label":"Hunting for an unsubscribe link"},{"id":"cancel","label":"A hard-to-cancel subscription"},{"id":"popup","label":"A pop-up covering what I wanted"},{"id":"password","label":"An absurd password rule"}]'::jsonb,
-    1
-  ),
-  (
-    'q_ease', 'srv_tech_habits',
-    'How intuitive does the technology in your life feel, overall?',
-    'scale', false, 1, 5, 'Constant friction', 'Effortless', null,
-    2
-  ),
-  (
-    'q_wish', 'srv_tech_habits',
-    'One interaction you wish designers would fix?',
-    'text', false, null, null, null, null, null,
-    3
-  )
-on conflict (id) do nothing;
+-- Seed content — mirrors src/lib/data/seed.ts.
+--
+-- The placeholder survey ("technology habits") and the button-affordance
+-- experiment were retired, so only the loading-perception experiment is seeded.
+-- No surveys are seeded at the moment; the survey tables and the whole survey
+-- path remain, waiting for real content.
+--
+-- Note this file only runs on a fresh or reset database. Removing rows here
+-- does NOT retire them on an environment that already ran the old seed — see
+-- the retire_placeholder_content migration for that.
 
 insert into public.experiments
-  (id, slug, title, description, hypothesis, metric_label, metric_min, metric_max, position)
+  (id, slug, title, description, hypothesis, kind, metric_label, metric_min, metric_max, position)
 values
   (
-    'exp_button_affordance',
-    'button-affordance',
-    'Does it look clickable?',
-    'You will see one version of a call-to-action. Rate how obviously clickable it feels. We are testing whether visual affordances change perceived usability.',
-    'A button with a clear border and shadow reads as more clickable than a flat, text-only variant.',
-    'How clickable did it feel? (1–5)',
-    1, 5, 0
+    'exp_loading_perception',
+    'loading-perception',
+    'Which loading state feels faster?',
+    'The goal of this experiment is to determine if the type of animation shown while loading a webpage can affect the perceived duration of the loading time. This experiment uses six different loading animations and presents them in pairs, in a randomized order, until every combination has been presented. Your answers in this experiment will contribute to a global score for each loading animation.',
+    'Perceived duration depends on what a loading indicator shows, not just how long it runs.',
+    'pairwise',
+    'Which one felt faster?',
+    0, 0, 0
   )
 on conflict (id) do nothing;
 
-insert into public.experiment_variants (id, experiment_id, label, description, position) values
-  ('solid', 'exp_button_affordance', 'Solid + shadow', 'High-affordance: filled background, border, subtle shadow.', 0),
-  ('flat',  'exp_button_affordance', 'Flat text', 'Low-affordance: text-only, no background or border.', 1)
+-- Variants carry no durations. A matchup draws one base for both sides and
+-- jitters each around it (rollMatchupDurations in src/lib/data/aggregate.ts),
+-- which decorrelates duration from identity: no variant is systematically the
+-- quick one, so "felt faster" cannot collapse into "was shorter". The base
+-- moves between matchups so it cannot be learned across a run either.
+--
+-- Ids must match the keys in src/features/experiments/indicators/index.ts.
+insert into public.experiment_variants
+  (id, experiment_id, label, description, position)
+values
+  ('classic_spinner', 'exp_loading_perception', 'Classic spinner', 'A rotating arc.', 0),
+  ('progress_bar',    'exp_loading_perception', 'Progress bar', 'A determinate bar filling from 0% to 100%.', 1),
+  ('skeleton',        'exp_loading_perception', 'Skeleton', 'Shimmering placeholders shaped like the content that is loading.', 2),
+  ('baking',          'exp_loading_perception', 'Cooking a meal', 'A multi-part cooking animation: stir, then bake.', 3),
+  ('quote',           'exp_loading_perception', 'Quote', 'A randomized quote, with an animated ellipsis.', 4),
+  ('blank',           'exp_loading_perception', 'Blank screen', 'Nothing at all — the control condition.', 5)
 on conflict (experiment_id, id) do nothing;

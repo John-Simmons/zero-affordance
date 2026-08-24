@@ -2,6 +2,7 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 @import '@fontsource-variable/geist';
+@import './features/experiments/indicators/cooking.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -25,6 +26,7 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -64,6 +66,11 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
+  /* The palette is otherwise achromatic; --destructive and --success are the
+     only chromatic tokens, reserved for signed values (e.g. a rating change).
+     Negative values reuse --destructive rather than adding a near-identical
+     third token. */
+  --success: oklch(0.548 0.161 148.5);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -99,6 +106,9 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  /* Lighter and less saturated for dark backgrounds, mirroring how
+     --destructive shifts between the two themes. */
+  --success: oklch(0.723 0.164 146.6);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -126,5 +136,118 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+/* Centre a flex item, but fall back to the top when it does not fit.
+
+   The rule the loading indicators need in every box smaller than the stimulus
+   canvas: a spinner or a progress bar is a small object that should sit in the
+   middle of its frame, while a quote or a cooking pan is often taller than a
+   recap panel or a preview popover — and centring something taller than its box
+   overflows it at BOTH ends, so the first line of a quote is cut off and the
+   reader starts mid-sentence. `safe` alignment is exactly this rule: centre
+   while it fits, align to start the moment it would overflow. No per-indicator
+   table to keep in step with what each component actually renders.
+
+   Two declarations, not one. `safe` is comparatively recent; a browser that
+   does not know the keyword drops the second line and keeps the first, which
+   top-aligns everything — the same thing these boxes did below `sm` before this
+   existed, and the failure mode that never hides the start of anything.
+
+   A custom utility because Tailwind ships no `items-safe-*` (checked against
+   4.3.3), and an arbitrary property could not carry the fallback declaration.
+   --------------------------------------------------------------------------- */
+@utility items-safe-center {
+  align-items: start;
+  align-items: safe center;
+}
+
+/* ---------------------------------------------------------------------------
+   Loading-indicator keyframes (src/features/experiments/indicators/).
+   Referenced via arbitrary animation utilities, e.g.
+   `animate-[shimmer_1.1s_linear_infinite]`, so no @theme entry is needed.
+
+   Not all of them are here. The cooking indicator's two are transcribed from
+   Figma rather than authored, and 30KB of generated stops would bury the two
+   below; they live in indicators/cooking.css, @imported at the top of this
+   file. Anything hand-written belongs here.
+   --------------------------------------------------------------------------- */
+
+/* Travelling highlight for the skeleton loader; `animate-pulse` fades in place
+   and reads quite differently.
+
+   Sweeps the highlight with `transform` rather than `background-position`. The
+   old version animated a repeating 200%-wide gradient from 150% to -150%, and
+   percentage background-position resolves against (positioning area - image
+   width) — with a 2W-wide tile in a W-wide box that is a 3W journey across a
+   pattern that repeats every 2W. Travel and period did not divide, so every
+   restart teleported the highlight half a tile. Visible as a snap.
+
+   Here the loop is seamless by construction instead of by arithmetic: the
+   sweeping element is 200% of the bar, and both keyframes park it completely
+   outside the bar's overflow-hidden box (-100% = 2W left of it, 50% = 1W right
+   of it). First and last frames both draw no highlight at all, so they match
+   whatever the widths are — nothing to keep in sync if the bar is resized.
+
+   Transform also composites, where background-position repaints each bar every
+   frame; the skeleton renders ~24 of these at once.
+
+   A consequence worth knowing: because both endpoints sit outside the box, the
+   duration is a free parameter — retiming the sweep cannot bring the snap back.
+   It lives on the utility in skeleton-loader.tsx, so change it there. */
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(50%);
+  }
+}
+
+/* The quote indicator's ellipsis: three dots that fill in left to right, then
+   clear together and start over.
+
+   One keyframe per dot rather than one shared keyframe on staggered delays,
+   because the dots do not share a duty cycle — the first is lit for three
+   quarters of the cycle, the second for half, the third for a quarter. That is
+   a cumulative count, not a travelling pulse, and no phase shift expresses it.
+
+   Opacity, not width or character count: a dark dot and a hidden one occupy the
+   same cell either way, so the quote above can never reflow as the count
+   changes. That is the guarantee the old `padEnd(3, ' ')` existed to provide.
+
+   The doubled stops are what make each dot snap rather than fade — the value
+   holds flat right up to the boundary, so there is no interpolation to see. */
+@keyframes quote-dot-1 {
+  0%,
+  25% {
+    opacity: 0;
+  }
+  25.01%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes quote-dot-2 {
+  0%,
+  50% {
+    opacity: 0;
+  }
+  50.01%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes quote-dot-3 {
+  0%,
+  75% {
+    opacity: 0;
+  }
+  75.01%,
+  100% {
+    opacity: 1;
   }
 }

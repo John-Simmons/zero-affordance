@@ -10,18 +10,32 @@
  * aggregation into Postgres views/RPC and point these methods at them — the UI
  * won't need to change because the return types are unchanged.
  */
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 
-import { aggregateExperiment, aggregateSurvey } from '@/lib/data/aggregate'
+import {
+  aggregateExperiment,
+  aggregateSurvey,
+  computeElo,
+  computeEloHistory,
+  computeMatchInsights,
+  emptyMatchInsights,
+} from '@/lib/data/aggregate'
+import { normalizeIdea } from '@/lib/data/ideas'
 import type { DataProvider, Unsubscribe } from '@/lib/data/provider'
 import type {
   AnswerValue,
+  IdeaVoteResult,
   Experiment,
+  ExperimentKind,
   ExperimentVariant,
   InteractionInput,
+  MatchInput,
+  MatchOutcome,
   Survey,
   SurveyQuestion,
   SurveyResponseInput,
+  VideoIdea,
+  VideoIdeaInput,
 } from '@/lib/data/types'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { hashString } from '@/lib/visitor'
@@ -50,6 +64,7 @@ interface ExperimentRow {
   title: string
   description: string
   hypothesis: string
+  kind: ExperimentKind | null
   metric_label: string
   metric_min: number
   metric_max: number
@@ -58,6 +73,24 @@ interface VariantRow {
   id: string
   label: string
   description: string
+}
+/** Shape returned by the list_video_ideas() function, not by a table select. */
+interface VideoIdeaRow {
+  id: string
+  title: string
+  description: string
+  vote_count: number
+  voted: boolean
+  created_at: string
+}
+interface MatchRow {
+  visitor_id: string
+  variant_a_id: string
+  variant_b_id: string
+  duration_a_ms: number
+  duration_b_ms: number
+  outcome: MatchOutcome
+  redone: boolean
 }
 
 function mapQuestion(row: QuestionRow): SurveyQuestion {
@@ -72,6 +105,85 @@ function mapQuestion(row: QuestionRow): SurveyQuestion {
     max: row.max ?? undefined,
     minLabel: row.min_label ?? undefined,
     maxLabel: row.max_label ?? undefined,
+  }
+}
+
+/** One realtime channel plus everyone currently listening to it. */
+interface SharedChannel {
+  channel: RealtimeChannel
+  listeners: Set<() => void>
+}
+
+/**
+ * Live channels per client, keyed by the logical topic they carry.
+ *
+ * supabase-js hands back the EXISTING channel when asked for a topic it already
+ * holds (`RealtimeClient.channel`), and `RealtimeChannel.on` throws once that
+ * channel has joined. So a second caller subscribing to the same thing used to
+ * crash the page with "cannot add `postgres_changes` callbacks … after
+ * `subscribe()`" — which is exactly what two hooks watching one table do.
+ *
+ * The mock adapter has always held a Set of listeners per key and been safe to
+ * call any number of times, so multiplexing here is what puts the two adapters
+ * back on identical behaviour rather than a special case for Supabase.
+ *
+ * Keyed by client, not held per provider, so several providers sharing one
+ * client cannot each think they own the topic.
+ */
+const sharedChannels = new WeakMap<SupabaseClient, Map<string, SharedChannel>>()
+
+/** Makes each created channel's name unique — see the note in `subscribeToChanges`. */
+let channelSeq = 0
+
+/**
+ * Watch one table for changes, sharing a channel with anyone already watching.
+ *
+ * The returned unsubscribe detaches only that caller; the channel closes when
+ * the last listener leaves.
+ */
+function subscribeToChanges(
+  client: SupabaseClient,
+  topic: string,
+  change: { event: 'INSERT' | '*'; table: string; filter?: string },
+  onChange: () => void,
+): Unsubscribe {
+  const byTopic = sharedChannels.get(client) ?? new Map<string, SharedChannel>()
+  sharedChannels.set(client, byTopic)
+
+  let shared = byTopic.get(topic)
+  if (!shared) {
+    const listeners = new Set<() => void>()
+    const channel = client
+      // The `#n` suffix keeps every channel we create uniquely named.
+      // `removeChannel` only drops a topic from the client once the server acks
+      // the leave, so reusing the bare name can hand back the previous,
+      // still-joined channel — and `.on()` throws on one of those. A name that
+      // has never been used cannot collide with one on its way out.
+      .channel(`${topic}#${(channelSeq += 1)}`)
+      .on(
+        'postgres_changes',
+        { schema: 'public', ...change },
+        // Reads the set at call time, so listeners can come and go without the
+        // channel being rebuilt — and without a second `.on()`, which is the
+        // call that throws.
+        () => listeners.forEach((fn) => fn()),
+      )
+      .subscribe()
+    shared = { channel, listeners }
+    byTopic.set(topic, shared)
+  }
+
+  const held = shared
+  held.listeners.add(onChange)
+
+  return () => {
+    held.listeners.delete(onChange)
+    if (held.listeners.size > 0) return
+    // Dropped from the registry before the await starts, so a subscriber
+    // arriving mid-removal builds a fresh channel instead of attaching to one
+    // that is already leaving.
+    if (byTopic.get(topic) === held) byTopic.delete(topic)
+    void client.removeChannel(held.channel)
   }
 }
 
@@ -104,7 +216,7 @@ export function createSupabaseProvider(
     const { data: exp, error } = await client
       .from('experiments')
       .select(
-        'id, slug, title, description, hypothesis, metric_label, metric_min, metric_max',
+        'id, slug, title, description, hypothesis, kind, metric_label, metric_min, metric_max',
       )
       .or(`slug.eq.${idOrSlug},id.eq.${idOrSlug}`)
       .maybeSingle<ExperimentRow>()
@@ -125,11 +237,55 @@ export function createSupabaseProvider(
       title: exp.title,
       description: exp.description,
       hypothesis: exp.hypothesis,
+      kind: exp.kind ?? 'rating',
       metricLabel: exp.metric_label,
       metricMin: exp.metric_min,
       metricMax: exp.metric_max,
-      variants: variants ?? [],
+      variants: (variants ?? []).map((v) => ({
+        id: v.id,
+        label: v.label,
+        description: v.description,
+      })),
     }
+  }
+
+  /**
+   * Every match for `experiment`, in the order Elo must replay them.
+   *
+   * Shared by the standings and the history so the two can never read a
+   * different list — the chart's last point has to land on the table's ratings.
+   */
+  async function loadMatches(experiment: Experiment): Promise<MatchInput[]> {
+    const { data, error } = await client
+      .from('experiment_matches')
+      .select(
+        'visitor_id, variant_a_id, variant_b_id, duration_a_ms, duration_b_ms, outcome, redone',
+      )
+      .eq('experiment_id', experiment.id)
+      // Load-bearing, not cosmetic: Elo is path-dependent, so an unordered
+      // read would yield different ratings from the same rows. `id` breaks
+      // ties within a millisecond.
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .returns<MatchRow[]>()
+    if (error) throw error
+    return (data ?? []).map((m) => ({
+      experimentId: experiment.id,
+      // Selected, not stubbed. It was `''` for every row, which cost the
+      // standings their participant count (one empty string is one visitor,
+      // however many people voted) and made every per-person finding
+      // impossible to compute — see `computeMatchInsights`. The column is an
+      // anonymous per-browser id and RLS already allows reading it.
+      visitorId: m.visitor_id,
+      variantAId: m.variant_a_id,
+      variantBId: m.variant_b_id,
+      durationAMs: m.duration_a_ms,
+      durationBMs: m.duration_b_ms,
+      outcome: m.outcome,
+      // Selected even though Elo ignores it, so the replayed matches are the
+      // rows as recorded rather than rows with one field quietly invented.
+      redone: m.redone,
+    }))
   }
 
   return {
@@ -235,45 +391,166 @@ export function createSupabaseProvider(
       return aggregateExperiment(exp, interactions)
     },
 
+    async recordMatch(input: MatchInput) {
+      const { error } = await client.from('experiment_matches').insert({
+        experiment_id: input.experimentId,
+        visitor_id: input.visitorId,
+        variant_a_id: input.variantAId,
+        variant_b_id: input.variantBId,
+        duration_a_ms: input.durationAMs,
+        duration_b_ms: input.durationBMs,
+        outcome: input.outcome,
+        redone: input.redone,
+      })
+      if (error) throw error
+    },
+
+    async getEloAggregate(experimentId: string) {
+      const exp = await loadExperiment(experimentId)
+      if (!exp)
+        return {
+          experimentId,
+          totalMatches: 0,
+          totalParticipants: 0,
+          ratings: [],
+        }
+      return computeElo(exp, await loadMatches(exp))
+    },
+
+    async getEloHistory(experimentId: string) {
+      const exp = await loadExperiment(experimentId)
+      if (!exp) return { experimentId, totalMatches: 0, points: [] }
+      return computeEloHistory(exp, await loadMatches(exp))
+    },
+
+    async getMatchInsights(experimentId: string) {
+      const exp = await loadExperiment(experimentId)
+      if (!exp) return emptyMatchInsights(experimentId)
+      // `loadMatches` already selects every column these findings read, and
+      // orders rows the way the replay needs — nothing new to select.
+      return computeMatchInsights(exp, await loadMatches(exp))
+    },
+
     subscribeToSurveyAggregate(surveyId: string, onChange): Unsubscribe {
-      const channel = client
-        .channel(`survey_responses:${surveyId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'survey_responses',
-            filter: `survey_id=eq.${surveyId}`,
-          },
-          () => onChange(),
-        )
-        .subscribe()
-      return () => {
-        void client.removeChannel(channel)
-      }
+      return subscribeToChanges(
+        client,
+        `survey_responses:${surveyId}`,
+        {
+          event: 'INSERT',
+          table: 'survey_responses',
+          filter: `survey_id=eq.${surveyId}`,
+        },
+        onChange,
+      )
     },
 
     subscribeToExperimentAggregate(
       experimentId: string,
       onChange,
     ): Unsubscribe {
-      const channel = client
-        .channel(`experiment_interactions:${experimentId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'experiment_interactions',
-            filter: `experiment_id=eq.${experimentId}`,
-          },
-          () => onChange(),
-        )
-        .subscribe()
-      return () => {
-        void client.removeChannel(channel)
+      return subscribeToChanges(
+        client,
+        `experiment_interactions:${experimentId}`,
+        {
+          event: 'INSERT',
+          table: 'experiment_interactions',
+          filter: `experiment_id=eq.${experimentId}`,
+        },
+        onChange,
+      )
+    },
+
+    subscribeToEloAggregate(experimentId: string, onChange): Unsubscribe {
+      // Two hooks watch this one: the standings and the history chart. They
+      // share the channel `subscribeToChanges` keeps for the topic.
+      return subscribeToChanges(
+        client,
+        `experiment_matches:${experimentId}`,
+        {
+          event: 'INSERT',
+          table: 'experiment_matches',
+          filter: `experiment_id=eq.${experimentId}`,
+        },
+        onChange,
+      )
+    },
+
+    async listVideoIdeas(visitorId: string): Promise<VideoIdea[]> {
+      // An RPC rather than a table select: idea_votes is unreadable by anon on
+      // purpose (it holds visitor ids), so the count and the "did I vote" flag
+      // have to come from a security-definer function. One round trip, no N+1.
+      const { data, error } = await client.rpc('list_video_ideas', {
+        p_visitor_id: visitorId,
+      })
+      if (error) throw error
+      // Cast rather than `.returns<>()`: without generated database types the
+      // client cannot tell a set-returning function from a scalar one.
+      const rows = (data ?? []) as VideoIdeaRow[]
+      return rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        description: r.description,
+        voteCount: r.vote_count,
+        votedByVisitor: r.voted,
+        createdAt: r.created_at,
+      }))
+    },
+
+    async createVideoIdea(input: VideoIdeaInput): Promise<VideoIdea> {
+      // Same guard the mock applies and the check constraints enforce, so a bad
+      // row fails identically on both backends instead of only at the database.
+      const { title, description } = normalizeIdea(input)
+      const { data, error } = await client
+        .from('video_ideas')
+        .insert({ title, description })
+        .select('id, title, description, vote_count, created_at')
+        .single<Omit<VideoIdeaRow, 'voted'>>()
+      if (error) throw error
+      return {
+        id: data.id,
+        title: data.title,
+        description: data.description,
+        voteCount: data.vote_count,
+        votedByVisitor: false,
+        createdAt: data.created_at,
       }
+    },
+
+    async setIdeaVote(
+      ideaId: string,
+      visitorId: string,
+      voted: boolean,
+    ): Promise<IdeaVoteResult> {
+      const { data, error } = await client.rpc('set_idea_vote', {
+        p_idea_id: ideaId,
+        p_visitor_id: visitorId,
+        p_voted: voted,
+      })
+      if (error) throw error
+      const row = (
+        data as { idea_id: string; vote_count: number; voted: boolean }[] | null
+      )?.[0]
+      if (!row) throw new Error('set_idea_vote returned no row')
+      return {
+        ideaId: row.idea_id,
+        voteCount: row.vote_count,
+        voted: row.voted,
+      }
+    },
+
+    subscribeToVideoIdeas(onChange): Unsubscribe {
+      return subscribeToChanges(
+        client,
+        'video_ideas',
+        {
+          // '*', not INSERT. Unlike every other subscription here the rows are
+          // not append-only: a vote updates vote_count, and moderation from the
+          // dashboard deletes.
+          event: '*',
+          table: 'video_ideas',
+        },
+        onChange,
+      )
     },
   }
 }

@@ -15,9 +15,17 @@ import { cn } from '@/lib/utils'
 import { getVisitorId } from '@/lib/visitor'
 
 /**
- * Renders the stimulus for a variant. For the seeded "button-affordance"
- * experiment we vary the visual affordance; other experiments fall back to a
- * described card. Add cases here as you author new experiments.
+ * Renders the stimulus for a variant of a *rating* experiment.
+ *
+ * Dormant: the only rating experiment, "button-affordance", was a placeholder
+ * and has been retired, so nothing currently reaches this file. It is kept
+ * deliberately rather than deleted — the whole rating path (this runner,
+ * `assignVariant`, `recordInteraction`, `aggregateExperiment` and the
+ * `experiment_interactions` table) still works and is waiting for the next
+ * rating-style experiment. The `solid`/`flat` cases below are what that
+ * retired experiment used; they are the worked example, not live content.
+ *
+ * Add cases here as you author new experiments.
  */
 function VariantStimulus({ variant }: { variant: ExperimentVariant }) {
   if (variant.id === 'solid') {

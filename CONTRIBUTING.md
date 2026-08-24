@@ -5,12 +5,12 @@ local dev or previews.
 
 ## Environments
 
-| Environment | Git branch         | Supabase project    | URL                          |
-| ----------- | ------------------ | ------------------- | ---------------------------- |
-| Production  | `main` (protected) | prod                | https://www.zeroaffordance.com |
-| Staging     | `dev`              | dev                 | https://staging.zeroaffordance.com |
-| PR previews | `feat/*` (via PR)  | dev                 | per-deployment `*.vercel.app` |
-| Local       | working copy       | dev                 | http://localhost:5173        |
+| Environment | Git branch         | Supabase project | URL                                |
+| ----------- | ------------------ | ---------------- | ---------------------------------- |
+| Production  | `main` (protected) | prod             | https://www.zeroaffordance.com     |
+| Staging     | `dev`              | dev              | https://staging.zeroaffordance.com |
+| PR previews | `feat/*` (via PR)  | dev              | per-deployment `*.vercel.app`      |
+| Local       | working copy       | dev              | http://localhost:5173              |
 
 Only **Production** reads/writes the prod database. Local dev, the `dev` branch, and
 all PR previews use the **dev** Supabase project (via Vercel's Preview-scoped env vars
@@ -40,7 +40,7 @@ pnpm dev                # http://localhost:5173  (footer shows "Supabase")
 ## Everyday checks (what CI runs)
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test && pnpm build
+pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build
 ```
 
 CI (`.github/workflows/ci.yml`) runs these on every PR and on pushes to `main`/`dev`.
@@ -59,12 +59,21 @@ pnpm supabase login                         # one-time, interactive
 pnpm supabase migration new add_something
 
 # apply to DEV, test on staging, then apply to PROD
-pnpm supabase link --project-ref <dev-ref>
+pnpm supabase link --project-ref bydjoacdofhzfroegfmc   # dev  (zero-affordance-dev)
 pnpm supabase db push
 # ...verify on staging.zeroaffordance.com...
-pnpm supabase link --project-ref pjcltrrixmuitgykhzbb   # prod
+pnpm supabase link --project-ref pjcltrrixmuitgykhzbb   # prod (zero-affordance)
 pnpm supabase db push
 ```
+
+> The two project names differ by a suffix — `zero-affordance-dev` is dev,
+> plain `zero-affordance` is production. Check which ref you linked
+> (`pnpm supabase projects list` marks the linked one) before running
+> `db push`, or run it against prod by accident.
+
+Note `db push` applies **migrations only**; it does not run `seed.sql`. Content
+that an existing environment needs — a new experiment row, say — has to be in a
+migration, or it will simply be missing there.
 
 `supabase/seed.sql` holds the starter survey/experiment definitions (safe to re-run —
 uses `on conflict do nothing`).

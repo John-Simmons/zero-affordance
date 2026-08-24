@@ -1,7 +1,9 @@
+import { ArrowRight, FlaskConical, Lightbulb } from 'lucide-react'
+import { useMemo } from 'react'
 import { Link } from 'react-router'
-import { ArrowRight, FlaskConical, ListChecks } from 'lucide-react'
 
 import { Container } from '@/components/layout/container'
+import { Logo } from '@/components/layout/logo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,57 +14,103 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { siteConfig } from '@/config/site'
-import { useExperiments, useSurveys } from '@/lib/data/hooks'
+import { useExperiments, useSurveys, useVideoIdeas } from '@/lib/data/hooks'
+import { getVisitorId } from '@/lib/visitor'
 
 export function HomePage() {
   const surveys = useSurveys()
   const experiments = useExperiments()
 
+  // Same read-once-per-mount rule as the ideas page: the id is a query key, so
+  // a fresh value each render would thrash the cache.
+  const visitorId = useMemo(() => getVisitorId(), [])
+  const ideas = useVideoIdeas(visitorId)
+
+  // Only meaningful once both catalogue queries have landed — a badge that
+  // counts half the studies is worse than no badge for a beat.
+  const studyCount =
+    surveys.data && experiments.data
+      ? surveys.data.length + experiments.data.length
+      : undefined
+
   return (
     <div>
       <section className="border-b border-border/60">
         <Container className="py-20 text-center">
-          <Badge variant="secondary" className="mb-4">
-            Companion to the YouTube channel
-          </Badge>
+          <Logo className="mx-auto mb-6 block h-12" />
           <h1 className="mx-auto max-w-3xl font-heading text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
             {siteConfig.tagline}
           </h1>
-          <p className="mx-auto mt-4 max-w-xl text-lg text-pretty text-muted-foreground">
-            {siteConfig.description}
-          </p>
-          <div className="mt-8 flex items-center justify-center gap-3">
-            <Button asChild size="lg">
-              <Link to="/surveys">
-                Take a survey <ArrowRight />
-              </Link>
-            </Button>
-            <Button asChild size="lg" variant="outline">
-              <Link to="/experiments">Run an experiment</Link>
-            </Button>
-          </div>
+          <DefinitionEntry />
         </Container>
       </section>
 
+      {/*
+        One card per destination in the nav's two content sections. The old
+        Surveys/Experiments split predates the combined catalogue and had both
+        cards pointing at /studies, which read as a duplicated link.
+      */}
       <Container className="grid gap-6 py-16 md:grid-cols-2">
         <SectionCard
-          icon={<ListChecks className="size-5" />}
-          title="Surveys"
-          description="Quick self-reports whose results update live as the community responds."
-          href="/surveys"
-          cta="Browse surveys"
-          count={surveys.data?.length}
+          icon={<FlaskConical className="size-5" />}
+          title="Studies"
+          description="Surveys to answer and experiments to take part in, with results that update live as the community responds."
+          href="/studies"
+          cta="Browse studies"
+          count={studyCount}
         />
         <SectionCard
-          icon={<FlaskConical className="size-5" />}
-          title="Experiments"
-          description="Interactive A/B-style studies on how design shapes perception and behavior."
-          href="/experiments"
-          cta="Browse experiments"
-          count={experiments.data?.length}
+          icon={<Lightbulb className="size-5" />}
+          title="Video Ideas"
+          description="Suggest what the channel should cover next, and vote for the topics you want to watch."
+          href="/ideas"
+          cta="Browse ideas"
+          count={ideas.data?.length}
         />
       </Container>
     </div>
+  )
+}
+
+/**
+ * The term the channel is named after, set as a dictionary entry below the
+ * hero copy. Left-aligned inside the centred hero because that is how an entry
+ * reads on the page of a dictionary.
+ */
+function DefinitionEntry() {
+  const { headword, partOfSpeech, pronunciation, senses } =
+    siteConfig.definition
+
+  return (
+    <dl className="mx-auto mt-8 max-w-xl text-left">
+      <dt className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-heading text-lg font-semibold tracking-tight">
+          {headword}
+        </span>
+        <span className="text-sm text-muted-foreground italic">
+          {partOfSpeech}
+        </span>
+        <span className="text-sm text-muted-foreground">{pronunciation}</span>
+      </dt>
+      {senses.map(({ sense, example, attribution }, index) => (
+        <dd
+          key={sense}
+          className="mt-2 flex gap-2 text-pretty text-muted-foreground"
+        >
+          <span aria-hidden className="tabular-nums">
+            {index + 1}.
+          </span>
+          <span>
+            {sense}
+            {example && (
+              <span className="mt-1 block text-muted-foreground/80 italic">
+                “{example}”{attribution && ` — ${attribution}`}
+              </span>
+            )}
+          </span>
+        </dd>
+      ))}
+    </dl>
   )
 }
 
