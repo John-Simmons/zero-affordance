@@ -168,8 +168,8 @@
    Referenced via arbitrary animation utilities, e.g.
    `animate-[shimmer_1.1s_linear_infinite]`, so no @theme entry is needed.
 
-   Not all of them are here. The cooking indicator's six are transcribed from
-   Figma rather than authored, and 60KB of generated stops would bury the two
+   Not all of them are here. The cooking indicator's two are transcribed from
+   Figma rather than authored, and 30KB of generated stops would bury the two
    below; they live in indicators/cooking.css, @imported at the top of this
    file. Anything hand-written belongs here.
    --------------------------------------------------------------------------- */

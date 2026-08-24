@@ -59,7 +59,7 @@ export const seedExperiments: Experiment[] = [
       {
         id: 'baking',
         label: 'Cooking a meal',
-        description: 'A multi-part cooking animation: pour, stir, then bake.',
+        description: 'A multi-part cooking animation: stir, then bake.',
       },
       {
         id: 'quote',
