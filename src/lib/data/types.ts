@@ -50,6 +50,13 @@ export interface SurveySummary {
   title: string
   description: string
   questionCount: number
+  /**
+   * Distinct visitors who have answered, for the catalogue's "N participants".
+   *
+   * Distinct people, not rows — the same head-count the results screens report,
+   * so a study cannot advertise one number on the listing and another inside.
+   */
+  participantCount: number
 }
 
 /** A single answer value, shape depends on the question type. */
@@ -131,6 +138,15 @@ export interface ExperimentSummary {
   title: string
   description: string
   variantCount: number
+  /**
+   * Distinct visitors who have taken part, counted across both ways of taking
+   * part (pairwise matches and rating interactions) so the number does not
+   * depend on the experiment's `kind`.
+   *
+   * For a pairwise experiment this is `EloAggregate.totalParticipants` — same
+   * people, same definition, so the listing and the standings agree.
+   */
+  participantCount: number
 }
 
 export interface InteractionInput {

@@ -9,6 +9,7 @@ import {
   aggregateExperiment,
   aggregateSurvey,
   computeElo,
+  countParticipants,
   computeEloHistory,
   computeMatchInsights,
   emptyMatchInsights,
@@ -25,6 +26,7 @@ import type {
   MatchInput,
   MatchOutcome,
   Survey,
+  SurveyResponseInput,
   SurveySummary,
 } from '@/lib/data/types'
 import { normalizeIdea } from '@/lib/data/ideas'
@@ -201,21 +203,52 @@ function baselineInteractions(experiment: Experiment): InteractionInput[] {
   return rows
 }
 
-const summarizeSurvey = (s: Survey): SurveySummary => ({
+// Both take their head-count rather than deriving it: the rows live behind
+// `readArray`, and a summarizer that read storage would be doing it once per
+// study per listing.
+const summarizeSurvey = (
+  s: Survey,
+  participantCount: number,
+): SurveySummary => ({
   id: s.id,
   slug: s.slug,
   title: s.title,
   description: s.description,
   questionCount: s.questions.length,
+  participantCount,
 })
 
-const summarizeExperiment = (e: Experiment): ExperimentSummary => ({
+const summarizeExperiment = (
+  e: Experiment,
+  participantCount: number,
+): ExperimentSummary => ({
   id: e.id,
   slug: e.slug,
   title: e.title,
   description: e.description,
   variantCount: e.variants.length,
+  participantCount,
 })
+
+/**
+ * Every response for `survey`, baseline first — the same list the aggregate
+ * reads, so the catalogue's head-count and the results page count the same
+ * people.
+ */
+function allResponses(survey: Survey): SurveyResponseInput[] {
+  const stored = readArray<SurveyResponseInput>(RESPONSES_KEY).filter(
+    (r) => r.surveyId === survey.id,
+  )
+  return [...baselineSurveyResponses(survey), ...stored]
+}
+
+/** The interactions half of the same idea, for rating experiments. */
+function allInteractions(experiment: Experiment): InteractionInput[] {
+  const stored = readArray<InteractionInput>(INTERACTIONS_KEY).filter(
+    (i) => i.experimentId === experiment.id,
+  )
+  return [...baselineInteractions(experiment), ...stored]
+}
 
 /**
  * Every match for `experiment`, in the order Elo must replay them.
@@ -243,7 +276,9 @@ export function createMockProvider(): DataProvider {
 
   return {
     async listSurveys() {
-      return surveys.map(summarizeSurvey)
+      return surveys.map((s) =>
+        summarizeSurvey(s, countParticipants(allResponses(s))),
+      )
     },
 
     async getSurvey(slug) {
@@ -261,19 +296,19 @@ export function createMockProvider(): DataProvider {
     async getSurveyAggregate(surveyId) {
       const survey = findSurvey(surveyId)
       if (!survey) return { surveyId, totalResponses: 0, questions: [] }
-      const stored = readArray<{
-        surveyId: string
-        visitorId: string
-        answers: Record<string, string | string[] | number>
-      }>(RESPONSES_KEY).filter((r) => r.surveyId === survey.id)
-      return aggregateSurvey(survey, [
-        ...baselineSurveyResponses(survey),
-        ...stored,
-      ])
+      return aggregateSurvey(survey, allResponses(survey))
     },
 
     async listExperiments() {
-      return experiments.map(summarizeExperiment)
+      // Both row sets, so the count does not depend on `kind`: a pairwise run
+      // leaves matches, a rating run leaves interactions, and either way the
+      // person who left them took part.
+      return experiments.map((e) =>
+        summarizeExperiment(
+          e,
+          countParticipants([...orderedMatches(e), ...allInteractions(e)]),
+        ),
+      )
     },
 
     async getExperiment(slug) {
@@ -298,10 +333,7 @@ export function createMockProvider(): DataProvider {
     async getExperimentAggregate(experimentId) {
       const exp = findExperiment(experimentId)
       if (!exp) return { experimentId, totalInteractions: 0, variants: [] }
-      const stored = readArray<InteractionInput>(INTERACTIONS_KEY).filter(
-        (i) => i.experimentId === exp.id,
-      )
-      return aggregateExperiment(exp, [...baselineInteractions(exp), ...stored])
+      return aggregateExperiment(exp, allInteractions(exp))
     },
 
     async recordMatch(input) {

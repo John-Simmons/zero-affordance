@@ -16,6 +16,7 @@ import {
   aggregateExperiment,
   aggregateSurvey,
   computeElo,
+  countParticipants,
   computeEloHistory,
   computeMatchInsights,
   emptyMatchInsights,
@@ -250,6 +251,40 @@ export function createSupabaseProvider(
   }
 
   /**
+   * Visitor ids grouped by the study they belong to, for the catalogue's
+   * head-count.
+   *
+   * One narrow read per table, grouped in memory — the same client-side
+   * approach as every other aggregate here (see the note at the top of the
+   * file). When volumes outgrow it this becomes a
+   * `count(distinct visitor_id) group by` view and nothing above this line
+   * changes.
+   *
+   * Returns rows rather than counts so a caller reading two tables can
+   * concatenate them and count the union once — two counts added together
+   * would double anyone who appears in both.
+   */
+  async function groupParticipants(
+    table:
+      'survey_responses' | 'experiment_matches' | 'experiment_interactions',
+    keyColumn: 'survey_id' | 'experiment_id',
+  ): Promise<Map<string, { visitorId: string }[]>> {
+    const into = new Map<string, { visitorId: string }[]>()
+    const { data, error } = await client
+      .from(table)
+      .select(`${keyColumn}, visitor_id`)
+      .returns<Record<string, string>[]>()
+    if (error) throw error
+    for (const row of data ?? []) {
+      const key = row[keyColumn]
+      const rows = into.get(key)
+      if (rows) rows.push({ visitorId: row.visitor_id })
+      else into.set(key, [{ visitorId: row.visitor_id }])
+    }
+    return into
+  }
+
+  /**
    * Every match for `experiment`, in the order Elo must replay them.
    *
    * Shared by the standings and the history so the two can never read a
@@ -290,10 +325,15 @@ export function createSupabaseProvider(
 
   return {
     async listSurveys() {
-      const { data, error } = await client
-        .from('surveys')
-        .select('id, slug, title, description, survey_questions(count)')
-        .order('position', { ascending: true })
+      // In parallel: neither read depends on the other, and the listing waits
+      // for the slower of the two rather than for their sum.
+      const [{ data, error }, participants] = await Promise.all([
+        client
+          .from('surveys')
+          .select('id, slug, title, description, survey_questions(count)')
+          .order('position', { ascending: true }),
+        groupParticipants('survey_responses', 'survey_id'),
+      ])
       if (error) throw error
       return (data ?? []).map((s: Record<string, unknown>) => ({
         id: s.id as string,
@@ -303,6 +343,9 @@ export function createSupabaseProvider(
         questionCount:
           (s.survey_questions as { count: number }[] | undefined)?.[0]?.count ??
           0,
+        participantCount: countParticipants(
+          participants.get(s.id as string) ?? [],
+        ),
       }))
     },
 
@@ -335,10 +378,17 @@ export function createSupabaseProvider(
     },
 
     async listExperiments() {
-      const { data, error } = await client
-        .from('experiments')
-        .select('id, slug, title, description, experiment_variants(count)')
-        .order('position', { ascending: true })
+      // Both tables, because an experiment's `kind` decides which one its
+      // participants are in, and counted as one list so anyone who appears in
+      // both is still one person.
+      const [{ data, error }, matches, interactions] = await Promise.all([
+        client
+          .from('experiments')
+          .select('id, slug, title, description, experiment_variants(count)')
+          .order('position', { ascending: true }),
+        groupParticipants('experiment_matches', 'experiment_id'),
+        groupParticipants('experiment_interactions', 'experiment_id'),
+      ])
       if (error) throw error
       return (data ?? []).map((e: Record<string, unknown>) => ({
         id: e.id as string,
@@ -348,6 +398,10 @@ export function createSupabaseProvider(
         variantCount:
           (e.experiment_variants as { count: number }[] | undefined)?.[0]
             ?.count ?? 0,
+        participantCount: countParticipants([
+          ...(matches.get(e.id as string) ?? []),
+          ...(interactions.get(e.id as string) ?? []),
+        ]),
       }))
     },
 
