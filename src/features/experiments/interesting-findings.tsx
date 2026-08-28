@@ -249,13 +249,13 @@ function FindingsBody({
             }}
           >
             <p>
-              The middle score is{' '}
+              The median score is{' '}
               <strong className="font-semibold text-foreground tabular-nums">
                 {Math.round(accuracySpread.medianPercent)}%
               </strong>
-              . What matters is the shape rather than the average: one hump near
-              half means everybody is guessing, two means some people genuinely
-              read duration and the rest do not.
+              . What matters is the shape rather than any single number: one
+              hump near half means everybody is guessing, two means some people
+              genuinely read duration and the rest do not.
             </p>
             <ul className="space-y-1">
               {accuracySpread.buckets.map((bucket) => (
@@ -328,7 +328,7 @@ function FindingsBody({
             </strong>{' '}
             of votes went to whichever animation played {leadingSlot.name}. The
             runner randomises which loading state lands in each slot, so
-            anything off 50/50 here is the slot talking, not the animation.
+            anything off 50/50 here is position bias, not the animation.
           </p>
           {/*
             aria-hidden: it is the two numbers in the sentence above, drawn. A
@@ -485,10 +485,7 @@ function FindingsBody({
                   replayAccuracy.firstView.scored,
                 )}
               </strong>{' '}
-              on a single viewing ({replayAccuracy.firstView.scored}). Watching
-              twice is a choice people make when a matchup felt close, so the
-              two groups are not the same matchups judged twice — a lower number
-              here is the difficulty talking, not the replay.
+              on a single viewing ({replayAccuracy.firstView.scored}).
             </p>
           </Finding>
         )}

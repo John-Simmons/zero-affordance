@@ -22,6 +22,30 @@ describe('mock data provider', () => {
     expect(await provider.getExperiment('button-affordance')).toBeNull()
   })
 
+  it('lists the same head-count the standings report, and grows it', async () => {
+    const provider = createMockProvider()
+    const [summary] = await provider.listExperiments()
+    const elo = await provider.getEloAggregate(summary.id)
+    // The catalogue and the standings answer "how many people" from the same
+    // rows. If these drift, one screen is advertising a study the other says
+    // nobody has taken.
+    expect(summary.participantCount).toBe(elo.totalParticipants)
+
+    const exp = (await provider.getExperiment(summary.slug))!
+    await provider.recordMatch({
+      experimentId: exp.id,
+      visitorId: 'visitor-1',
+      variantAId: exp.variants[0].id,
+      variantBId: exp.variants[1].id,
+      durationAMs: 1200,
+      durationBMs: 1400,
+      outcome: 'a',
+      redone: false,
+    })
+    const [after] = await provider.listExperiments()
+    expect(after.participantCount).toBe(summary.participantCount + 1)
+  })
+
   it('loads the pairwise experiment with identity-only variants', async () => {
     const provider = createMockProvider()
     const exp = await provider.getExperiment('loading-perception')

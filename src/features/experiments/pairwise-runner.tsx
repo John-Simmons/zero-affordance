@@ -405,7 +405,18 @@ function ratingsById(aggregate: EloAggregate): Record<string, number> {
   )
 }
 
-export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
+export function PairwiseRunner({
+  experiment,
+  startAtResults = false,
+}: {
+  experiment: Experiment
+  /**
+   * Open straight on the standings, as if the intro card's "Skip to results"
+   * had already been clicked. Read once, at mount: restarting from the results
+   * screen has to be able to leave, so this cannot keep pulling `phase` back.
+   */
+  startAtResults?: boolean
+}) {
   const visitorId = getVisitorId()
   const recordMatch = useRecordMatch()
 
@@ -413,8 +424,11 @@ export function PairwiseRunner({ experiment }: { experiment: Experiment }) {
   const [round, setRound] = useState(0)
   const [stage, setStage] = useState<Stage>('idle')
   // `intro` gates the whole thing behind an explanation; `results` is reached
-  // either by finishing a run or by skipping straight there.
-  const [phase, setPhase] = useState<'intro' | 'playing' | 'results'>('intro')
+  // either by finishing a run, by skipping straight there, or by arriving on a
+  // link that already asked for it.
+  const [phase, setPhase] = useState<'intro' | 'playing' | 'results'>(
+    startAtResults ? 'results' : 'intro',
+  )
   const [myMatches, setMyMatches] = useState<MatchInput[]>([])
   // Keyed by round rather than a boolean that resets as the round advances:
   // `round` only ever moves forward, so this needs clearing in exactly one

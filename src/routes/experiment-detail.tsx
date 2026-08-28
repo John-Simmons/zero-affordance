@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
 
 import { Container } from '@/components/layout/container'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,11 @@ const PAGE_PADDING = 'pt-6 pb-12 sm:pt-12'
 export function ExperimentDetailPage() {
   const { slug = '' } = useParams()
   const { data: experiment, isLoading } = useExperiment(slug)
+  // `?view=results` is how the Studies catalogue's "Skip to results" links in.
+  // Read here rather than in the runner: the URL is the route's business, and
+  // the runner already takes its starting point as plain state.
+  const [searchParams] = useSearchParams()
+  const startAtResults = searchParams.get('view') === 'results'
 
   if (isLoading) {
     return (
@@ -69,7 +74,10 @@ export function ExperimentDetailPage() {
 
       <div className="space-y-6">
         {isPairwise ? (
-          <PairwiseRunner experiment={experiment} />
+          <PairwiseRunner
+            experiment={experiment}
+            startAtResults={startAtResults}
+          />
         ) : (
           <ExperimentRunner experiment={experiment} />
         )}

@@ -3,6 +3,7 @@ import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
+import { createMockProvider } from '@/lib/data/mock'
 import { seedExperiments, seedSurveys } from '@/lib/data/seed'
 import { StudiesPage } from '@/routes/studies'
 
@@ -57,14 +58,46 @@ describe('StudiesPage', () => {
     }
   })
 
-  it('says what each entry will cost you', async () => {
+  it('offers experiments a way past the run, and surveys none', async () => {
+    renderStudies()
+    await screen.findByText(seedExperiments[0].title)
+
+    // The catalogue's half of the skip: the detail route reads `view=results`
+    // and opens the runner on the standings. If the param ever changes name,
+    // this and the runner have to move together.
+    for (const e of seedExperiments) {
+      const card = screen
+        .getByText(e.title)
+        .closest('[data-slot="card"]') as HTMLElement
+      expect(
+        within(card).getByRole('link', { name: /skip to results/i }),
+      ).toHaveAttribute('href', `/experiments/${e.slug}?view=results`)
+    }
+
+    // Surveys have no results view to skip to, so offering the same button
+    // there would be a link to nothing.
+    for (const s of seedSurveys) {
+      const card = screen
+        .getByText(s.title)
+        .closest('[data-slot="card"]') as HTMLElement
+      expect(
+        within(card).queryByRole('link', { name: /skip to results/i }),
+      ).toBeNull()
+    }
+  })
+
+  it('says how many people have already taken part', async () => {
+    // Driven off the provider rather than a literal: the seeded baseline stands
+    // in for history, and this should keep passing when that history grows.
+    const [summary] = await createMockProvider().listExperiments()
     renderStudies()
     const title = await screen.findByText(seedExperiments[0].title)
     const card = title.closest('[data-slot="card"]')!
     expect(
       within(card as HTMLElement).getByText(
-        `${seedExperiments[0].variants.length} variants`,
+        `${summary.participantCount} participants`,
       ),
     ).toBeInTheDocument()
+    expect(summary.participantCount).toBeGreaterThan(1)
   })
 })

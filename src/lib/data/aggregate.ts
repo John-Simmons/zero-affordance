@@ -358,6 +358,22 @@ function applyMatch(byId: Map<string, EloRating>, m: MatchInput): boolean {
  *
  * Matches the experiment cannot be rated on are skipped — see {@link counts}.
  */
+/**
+ * How many distinct people are behind a set of rows.
+ *
+ * Shared so every adapter answers the catalogue's head-count the same way, and
+ * so it means what {@link computeElo}'s `totalParticipants` means: one visitor
+ * is one participant however many rows they left behind.
+ *
+ * Takes anything with a `visitorId`, because a participant is a participant
+ * whether they voted on matchups, rated a variant, or answered a survey.
+ */
+export function countParticipants(
+  rows: readonly { visitorId: string }[],
+): number {
+  return new Set(rows.map((r) => r.visitorId)).size
+}
+
 export function computeElo(
   experiment: Experiment,
   matches: MatchInput[],
