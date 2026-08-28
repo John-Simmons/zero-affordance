@@ -11,14 +11,13 @@ export function AboutPage() {
       <div className="mt-6 space-y-4 text-pretty text-muted-foreground">
         <p>
           {siteConfig.name} is a companion to the YouTube series of the same
-          name created by John Simmons exploring UX design, human–computer
-          interaction, and psychology. Videos pose the questions; this site lets
-          you take part.
+          name, exploring UX design, human–computer interaction, and psychology.
+          Videos talk about the questions; this site lets you take part.
         </p>
         <p>
           Every survey and experiment here stores real, evolving data — so the
-          results you see reflect the community as it grows. Nothing requires an
-          account; participation is anonymous.
+          results you see reflect the community as it grows. Participation is
+          anonymous.
         </p>
       </div>
       <Button asChild className="mt-8">
